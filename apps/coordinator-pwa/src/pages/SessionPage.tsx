@@ -14,6 +14,7 @@ import { startLANValidationHost } from '../sync/lan-host'
 import { activateLANServer, deactivateLANServer } from '../sync/lan-server'
 import QRCodeLib from 'qrcode'
 import { BrandHeader } from '../components/BrandHeader'
+import StandbyPanel from '../components/StandbyPanel'
 import { useAuthStore } from '../store/auth'
 
 const API = import.meta.env.VITE_API_URL ?? (typeof location !== 'undefined' ? `${location.protocol}//${location.hostname}:8443` : 'http://localhost:8443')
@@ -21,7 +22,8 @@ const API = import.meta.env.VITE_API_URL ?? (typeof location !== 'undefined' ? `
 interface ServerSession {
   session_id: string
   tenant_id: string
-  checkin_code: string
+  checkin_code: string   // rotating — lecturer's live digit code
+  student_code: string   // static — the student room code (does not rotate)
   seconds_remaining: number
   checkin_window_end: string
 }
@@ -209,16 +211,22 @@ export default function SessionPage({ onGoDashboard }: { onGoDashboard?: () => v
   return (
     <div style={{ maxWidth: 480, margin: '0 auto', padding: 16, fontFamily: 'system-ui' }}>
       <BrandHeader />
-      <h2 style={{ marginBottom: 4 }}>Session</h2>
+      <h2 style={{ marginBottom: 4 }}>Attendance</h2>
       <StatusBadge state={state.value as string} />
 
       {state.value === 'IDLE' && (
-        <UnitSelector
-          units={cohortUnits}
-          cohort={cohort}
-          onSelect={handleUnitSelect}
-          selectedUnit={selectedUnit}
-        />
+        <>
+          <UnitSelector
+            units={cohortUnits}
+            cohort={cohort}
+            onSelect={handleUnitSelect}
+            selectedUnit={selectedUnit}
+          />
+          {/* Emergency standby lives inside the Attendance feature. */}
+          <div style={{ marginTop: 16 }}>
+            <StandbyPanel token={useAuthStore.getState().token} />
+          </div>
+        </>
       )}
 
       {state.value === 'PENDING_LECTURER' && (
@@ -502,7 +510,7 @@ function PendingLecturer({ unitId, unitName, openError, blockedSessionId, onClos
         onClick={async () => { setOpening(true); await openWith(selectedLecturer); setOpening(false) }}
         style={{ width: '100%', padding: 14, background: '#0f172a', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 15, cursor: (!selectedLecturer || opening) ? 'not-allowed' : 'pointer', opacity: (!selectedLecturer || opening) ? 0.5 : 1 }}
       >
-        {opening ? 'Opening session…' : 'Open Session'}
+        {opening ? 'Opening…' : 'Take attendance'}
       </button>
 
       <button
@@ -524,10 +532,9 @@ function ActiveSession({ unitName, count, checkinWindowEnd, lastScan, onEnd, ser
   token: string | null
 }) {
   const [timeLeft,    setTimeLeft]    = useState('')
-  const [roomCode,    setRoomCode]    = useState(serverSession?.checkin_code ?? '')
+  const [studentCode, setStudentCode] = useState(serverSession?.student_code ?? '')
   const [lecturerQRErr, setLecturerQRErr] = useState<string | null>(null)
   const [showLecturerQR, setShowLecturerQR] = useState(false)
-  const [codeSecsLeft,setCodeSecsLeft]= useState(serverSession?.seconds_remaining ?? 15)
   const [liveCount,   setLiveCount]   = useState(count)
   const [roster,      setRoster]      = useState<RosterStudent[]>([])
   const [rosterSearch,setRosterSearch]= useState('')
@@ -557,9 +564,8 @@ function ActiveSession({ unitName, count, checkinWindowEnd, lastScan, onEnd, ser
           headers: { Authorization: `Bearer ${token}` },
         })
         if (res.ok) {
-          const d = await res.json() as { code: string; seconds_remaining: number; checkin_count: number }
-          setRoomCode(d.code)
-          setCodeSecsLeft(d.seconds_remaining)
+          const d = await res.json() as { code: string; student_code: string; seconds_remaining: number; checkin_count: number }
+          if (d.student_code) setStudentCode(d.student_code)
           if (typeof d.checkin_count === 'number') setLiveCount(d.checkin_count)
         }
       } catch { /* ignore */ }
@@ -616,12 +622,14 @@ function ActiveSession({ unitName, count, checkinWindowEnd, lastScan, onEnd, ser
 
   return (
     <div>
-      {/* Room code — the big projector display */}
+      {/* Student room code — STATIC for the whole session (students on the hotspot
+          scan their own QR and type this code). The lecturer's code rotates and
+          lives in the "Show Lecturer QR" modal. */}
       {serverSession && (
         <div style={{ background: '#0f172a', borderRadius: 12, padding: '20px 24px', marginBottom: 16, textAlign: 'center' }}>
-          <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 4, letterSpacing: 1 }}>ROOM CODE</div>
-          <div style={{ color: '#fff', fontSize: 'clamp(34px, 11vw, 52px)', fontWeight: 800, letterSpacing: 'clamp(6px, 3vw, 12px)', fontFamily: 'monospace' }}>{roomCode}</div>
-          <div style={{ color: 'var(--muted)', fontSize: 11, marginTop: 4 }}>changes in {codeSecsLeft}s</div>
+          <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 4, letterSpacing: 1 }}>STUDENT ROOM CODE</div>
+          <div style={{ color: '#fff', fontSize: 'clamp(34px, 11vw, 52px)', fontWeight: 800, letterSpacing: 'clamp(6px, 3vw, 12px)', fontFamily: 'monospace' }}>{studentCode}</div>
+          <div style={{ color: 'var(--muted)', fontSize: 11, marginTop: 4 }}>students enter this code · stays the same all session</div>
         </div>
       )}
 

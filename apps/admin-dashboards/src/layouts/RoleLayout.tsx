@@ -7,6 +7,7 @@ import { useTheme, ThemeToggle, applyPalette } from '../theme'
 interface Branding {
   name: string; logo_url: string; motto: string
   brand_color: string; sidebar_color: string; background_color: string; footer_color: string
+  text_color_light?: string; text_color_dark?: string
 }
 
 interface RoleLayoutProps {
@@ -98,6 +99,8 @@ function adminNav(tenantId: string): NavLink[] {
     { label: 'Lecturers',           path: `${t}/lecturers` },
     { label: 'Assignments',         path: `${t}/lecturer-assignments` },
     { label: 'Lecturer Attendance', path: `${t}/lecturer-attendance` },
+    { label: 'Employees',           path: `${t}/employees` },
+    { label: 'Reports',             path: '/admin/reports' },
     { label: 'Venues',              path: `${t}/venues` },
     { label: 'Settings',            path: '/admin/settings' },
   ]

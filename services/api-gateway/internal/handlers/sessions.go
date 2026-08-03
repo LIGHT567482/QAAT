@@ -32,7 +32,8 @@ type openSessionRequest struct {
 type openSessionResponse struct {
 	SessionID        string `json:"session_id"`
 	TenantID         string `json:"tenant_id"`
-	CheckinCode      string `json:"checkin_code"`
+	CheckinCode      string `json:"checkin_code"`  // rotating (lecturer)
+	StudentCode      string `json:"student_code"`  // static (students)
 	SecondsRemaining int    `json:"seconds_remaining"`
 	CheckinWindowEnd string `json:"checkin_window_end"`
 }
@@ -50,12 +51,16 @@ func OpenSession(pool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 
+		// DISABLED: the coordinator may now begin attendance at ANY time, rather than
+		// only inside the tenant's configured lecture hours / active days (i.e. only
+		// shortly before a scheduled lecture). Re-enable to restore the time gate.
+		//
 		// Daily session window: refuse to open outside the tenant's configured
 		// hours/active days (defends against a stale client manifest).
-		if open, msg := withinSessionWindow(r.Context(), pool, tenantID); !open {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "WINDOW_CLOSED", "message": msg})
-			return
-		}
+		// if open, msg := withinSessionWindow(r.Context(), pool, tenantID); !open {
+		// 	writeJSON(w, http.StatusConflict, map[string]string{"error": "WINDOW_CLOSED", "message": msg})
+		// 	return
+		// }
 
 		sessionDate := time.Now().UTC().Format("2006-01-02")
 		if req.SessionDate != "" {
@@ -179,6 +184,7 @@ func OpenSession(pool *pgxpool.Pool) http.HandlerFunc {
 			SessionID:        sessionID,
 			TenantID:         tenantID,
 			CheckinCode:      checkin.Derive(secret, now),
+			StudentCode:      checkin.StaticCode(secret),
 			SecondsRemaining: checkin.SecondsRemaining(now),
 			CheckinWindowEnd: windowEnd.Format(time.RFC3339),
 		})
@@ -186,7 +192,8 @@ func OpenSession(pool *pgxpool.Pool) http.HandlerFunc {
 }
 
 type checkinCodeResponse struct {
-	Code             string `json:"code"`
+	Code             string `json:"code"`           // rotating — the LECTURER's live digit code
+	StudentCode      string `json:"student_code"`   // static — the STUDENT room code (does not rotate)
 	SecondsRemaining int    `json:"seconds_remaining"`
 	SessionStatus    string `json:"session_status"`
 	CheckinCount     int    `json:"checkin_count"`
@@ -212,6 +219,7 @@ func CheckinCode(pool *pgxpool.Pool) http.HandlerFunc {
 		now := time.Now().UTC()
 		writeJSON(w, http.StatusOK, checkinCodeResponse{
 			Code:             checkin.Derive(secret, now),
+			StudentCode:      checkin.StaticCode(secret),
 			SecondsRemaining: checkin.SecondsRemaining(now),
 			SessionStatus:    status,
 			CheckinCount:     count,

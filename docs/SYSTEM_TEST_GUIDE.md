@@ -2,8 +2,7 @@
 
 This is the end‑to‑end runbook: bring up the **backend**, verify the **database**, drive the
 **frontends**, hand QR codes to **real students**, and run a **real attendance session** on real
-phones — then confirm the data. It is written for a **pilot on one Linux laptop** that is both the
-server and the room Wi‑Fi.
+phones — then confirm the data. It is written for a **pilot on one Linux laptop** that is both the server and the room Wi‑Fi.
 
 > **Laptop‑hub vs phone‑hub — and where the PWA fits.** In *this* guide the **server + database is the
 > laptop's Docker stack**; the **PWA is only the coordinator's browser screen** (a client of that

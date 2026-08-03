@@ -32,6 +32,12 @@ type manifestSession struct {
 	// (1=Mon…7=Sun, 0 = unscheduled / runs any day). Drives "today's sessions".
 	DayOfWeek       int `json:"day_of_week"`
 	DurationMinutes int `json:"session_duration_minutes,omitempty"`
+	// The lecturer assigned to this unit — so the coordinator app identifies them
+	// AUTOMATICALLY when the unit is chosen (no manual staff-ID entry) and can show
+	// their contact on the timetable.
+	LecturerStaffID string `json:"lecturer_staff_id,omitempty"`
+	LecturerName    string `json:"lecturer_name,omitempty"`
+	LecturerPhone   string `json:"lecturer_phone,omitempty"`
 }
 
 type rosterEntry struct {
@@ -93,12 +99,17 @@ func ManifestDaily(pool *pgxpool.Pool, rdb *redis.Client) http.HandlerFunc {
 			rdb.Set(r.Context(), cacheKey, raw, time.Until(midnight)) //nolint:errcheck
 		}
 
+		// DISABLED: the daily session window no longer gates the manifest — the
+		// coordinator can begin attendance at any time of day, on any day, not just
+		// shortly before a scheduled lecture. Re-enable the commented block below
+		// (and the guard in OpenSession) to restore the time gate.
+		//
 		// Re-evaluate the daily session window on EVERY request (the cached body was
 		// frozen at first fetch). The per-unit TIMETABLE takes precedence: a unit
 		// explicitly scheduled for today is always startable today, regardless of
 		// the tenant's global lecture-day/time window. Units with NO scheduled day
 		// (day_of_week 0) fall back to the global window.
-		open, msg := withinSessionWindow(r.Context(), pool, tenantID)
+		// open, msg := withinSessionWindow(r.Context(), pool, tenantID)
 		iso := int(time.Now().Weekday())
 		if iso == 0 {
 			iso = 7 // Sunday → 7
@@ -112,24 +123,29 @@ func ManifestDaily(pool *pgxpool.Pool, rdb *redis.Client) http.HandlerFunc {
 				unscheduled = append(unscheduled, s)
 			}
 		}
-		switch {
-		case len(scheduledToday) > 0:
-			// Timetable overrides: show today's scheduled units (+ any unscheduled ones).
-			manifest.Sessions = append(scheduledToday, unscheduled...)
-			manifest.WindowOpen = true
-			manifest.WindowMessage = ""
-		case open:
-			// No unit scheduled specifically for today → fall back to the tenant
-			// window, showing the unscheduled units (units scheduled for OTHER days
-			// stay hidden today).
-			manifest.Sessions = unscheduled
-			manifest.WindowOpen = true
-			manifest.WindowMessage = msg
-		default:
-			manifest.Sessions = []manifestSession{}
-			manifest.WindowOpen = false
-			manifest.WindowMessage = msg
-		}
+		// Window gating commented out: today's scheduled units still list first, but
+		// the manifest is ALWAYS open and never empties out on an "off" hour/day.
+		manifest.Sessions = append(scheduledToday, unscheduled...)
+		manifest.WindowOpen = true
+		manifest.WindowMessage = ""
+		// switch {
+		// case len(scheduledToday) > 0:
+		// 	// Timetable overrides: show today's scheduled units (+ any unscheduled ones).
+		// 	manifest.Sessions = append(scheduledToday, unscheduled...)
+		// 	manifest.WindowOpen = true
+		// 	manifest.WindowMessage = ""
+		// case open:
+		// 	// No unit scheduled specifically for today → fall back to the tenant
+		// 	// window, showing the unscheduled units (units scheduled for OTHER days
+		// 	// stay hidden today).
+		// 	manifest.Sessions = unscheduled
+		// 	manifest.WindowOpen = true
+		// 	manifest.WindowMessage = msg
+		// default:
+		// 	manifest.Sessions = []manifestSession{}
+		// 	manifest.WindowOpen = false
+		// 	manifest.WindowMessage = msg
+		// }
 
 		raw, _ := json.Marshal(manifest)
 		w.Header().Set("Content-Type", "application/json")
@@ -184,18 +200,16 @@ func buildManifest(ctx context.Context, pool *pgxpool.Pool, tenantID, coordinato
 		return nil, fmt.Errorf("fetch tenant policy: %w", err)
 	}
 
-	// Build the coordinator's unit list, scoped to THEIR cohort (the offering's
-	// year + semester + level). Additionally gate on the tenant's ACTIVE SEMESTER:
-	// a coordinator only sees their catalog while their cohort's semester is the one
-	// being taught now — so the same academic year holds Sem-1 and Sem-2 cohorts but
-	// each coordinator sees only the active-semester catalog. Within that, restrict
-	// to the active academic year (units with a blank/NULL academic_year always show).
+	// Build the coordinator's unit list, scoped to THEIR cohort (the offering's own
+	// year + semester + level). There is NO single institution-wide "active semester":
+	// within one academic year different intakes/cohorts sit at different (year,
+	// semester) positions simultaneously (yr1/sem1, yr1/sem2, yr2/sem1, yr3/sem2 …), so
+	// each coordinator is served their own cohort's current-semester catalog and we do
+	// NOT gate on a global semester. The academic year IS shared: restrict to it (units
+	// with a blank/NULL academic_year always show).
+	_ = activeSemester // per-cohort semester lives on the offering; no global gate
 	semFilter := "cu.year = o.study_year AND cu.semester = o.semester AND cu.level = o.level"
 	semArgs := []interface{}{coordinatorID, tenantID}
-	if activeSemester == 1 || activeSemester == 2 {
-		semFilter += fmt.Sprintf(" AND o.semester = $%d", len(semArgs)+1)
-		semArgs = append(semArgs, activeSemester)
-	}
 	if activeAcademicYear != "" {
 		semFilter += fmt.Sprintf(" AND (cu.academic_year = $%d OR cu.academic_year IS NULL OR cu.academic_year = '')", len(semArgs)+1)
 		semArgs = append(semArgs, activeAcademicYear)
@@ -206,11 +220,21 @@ func buildManifest(ctx context.Context, pool *pgxpool.Pool, tenantID, coordinato
 		       COALESCE(cu.default_venue_id, ''),
 		       COALESCE(ous.day_of_week, 0),
 		       COALESCE(to_char(ous.session_start, 'HH24:MI'), ''),
-		       COALESCE(ous.session_duration_minutes, 0)
+		       COALESCE(ous.session_duration_minutes, 0),
+		       COALESCE(lec.staff_id, ''), COALESCE(lec.full_name, ''), COALESCE(lec.phone, '')
 		FROM course_offerings o
 		JOIN course_units cu ON cu.course_id = o.course_id AND cu.tenant_id = o.tenant_id
 		LEFT JOIN offering_unit_schedules ous
 		       ON ous.offering_id = o.offering_id AND ous.unit_id = cu.unit_id AND ous.tenant_id = o.tenant_id
+		-- the assigned lecturer for this unit (one, without multiplying rows)
+		LEFT JOIN LATERAL (
+		    SELECT l.staff_id, l.full_name, l.phone
+		    FROM lecturer_assignments la
+		    JOIN lecturers l ON l.lecturer_id = la.lecturer_id AND l.tenant_id = la.tenant_id
+		    WHERE la.unit_id = cu.unit_id AND la.tenant_id = o.tenant_id
+		    ORDER BY la.academic_year DESC
+		    LIMIT 1
+		) lec ON true
 		WHERE o.coordinator_id = $1
 		  AND o.tenant_id = $2
 		  AND %s
@@ -225,7 +249,8 @@ func buildManifest(ctx context.Context, pool *pgxpool.Pool, tenantID, coordinato
 	for rows.Next() {
 		var ms manifestSession
 		if err := rows.Scan(&ms.UnitID, &ms.UnitName, &ms.VenueID,
-			&ms.DayOfWeek, &ms.ScheduledStart, &ms.DurationMinutes); err != nil {
+			&ms.DayOfWeek, &ms.ScheduledStart, &ms.DurationMinutes,
+			&ms.LecturerStaffID, &ms.LecturerName, &ms.LecturerPhone); err != nil {
 			return nil, err
 		}
 		sessions = append(sessions, ms)
@@ -240,12 +265,17 @@ func buildManifest(ctx context.Context, pool *pgxpool.Pool, tenantID, coordinato
 
 	roster := make(map[string][]rosterEntry)
 	for _, uid := range unitIDs {
+		// COHORT ISOLATION: the roster for a unit is ONLY this coordinator's own cohort
+		// (their offering) — not every student of the shared course. Two coordinators of
+		// the same course but different cohorts therefore never see each other's students.
 		rRows, err := conn.Query(ctx, `
 			SELECT s.student_id, COALESCE(s.qr_serial_number,'')
 			FROM students_extended s
-			JOIN course_units cu ON cu.course_id = s.course_id
-			WHERE cu.unit_id = $1 AND s.enrollment_status = 'ACTIVE' AND s.tenant_id = $2`,
-			uid, tenantID)
+			JOIN course_offerings o ON o.offering_id = s.offering_id
+			JOIN course_units cu ON cu.course_id = o.course_id AND cu.tenant_id = o.tenant_id
+			WHERE cu.unit_id = $1 AND o.coordinator_id = $2 AND s.tenant_id = $3
+			  AND s.enrollment_status = 'ACTIVE'`,
+			uid, coordinatorID, tenantID)
 		if err != nil {
 			continue
 		}
