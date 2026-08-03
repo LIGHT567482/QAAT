@@ -31,12 +31,9 @@ object SyncManager {
                 AttendanceRecord(it.logId, it.sessionId, it.studentIdHash, it.deviceFingerprintHash,
                     it.sequenceNumber, it.checkinTimestamp, it.entryMethod)
             }
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/sync/SyncManager.kt
-=======
             // Only COMPLETE logs are synced: a closed session with NO check-ins has nothing to
             // report, so we don't upload it. Mark it SYNCED so it stops re-queuing every pass.
             if (records.isEmpty()) { dao.upsertSession(s.copy(status = "SYNCED")); continue }
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/sync/SyncManager.kt
             val pkg = SessionPackage.build(
                 s.sessionId, userId, records, sealedAt = Instant.now().toString(),
                 unitId = s.unitId, sessionDate = s.sessionDate,

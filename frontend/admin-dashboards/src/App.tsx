@@ -37,9 +37,6 @@ import QAStudentAttendance from './pages/qa/QAStudentAttendance'
 import QAReports from './pages/qa/QAReports'
 import { QAOrgLecturers, QAOrgDepartments, QAOrgReports } from './pages/qa/QAOrgDashboard'
 import Timetable from './pages/shared/Timetable'
-<<<<<<< HEAD:apps/admin-dashboards/src/App.tsx
-import LecturerPortal from './pages/LecturerPortal'
-=======
 import Messages from './pages/shared/Messages'
 import LecturerPortal from './pages/LecturerPortal'
 import OrgOverview from './pages/shared/OrgOverview'
@@ -47,7 +44,6 @@ import AtRisk from './pages/shared/AtRisk'
 import AdminAudit from './pages/admin/AdminAudit'
 import Alerts from './pages/shared/Alerts'
 import OrgDepartments from './pages/shared/OrgDepartments'
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/App.tsx
 
 export default function App() {
   return (
@@ -114,11 +110,8 @@ export default function App() {
             <Route path="/admin/tenants/:tenantId/employee-attendance"   element={<AdminEmployeeAttendance />} />
             <Route path="/admin/tenants/:tenantId/student-attendance"    element={<QAStudentAttendance />} />
             <Route path="/admin/reports"                                 element={<AdminReports />} />
-<<<<<<< HEAD:apps/admin-dashboards/src/App.tsx
-=======
             <Route path="/admin/at-risk"                                 element={<AtRisk />} />
             <Route path="/admin/audit"                                   element={<AdminAudit />} />
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/App.tsx
           </Route>
 
           {/* ── Lecturer (own assigned units) ──────────────────────────── */}

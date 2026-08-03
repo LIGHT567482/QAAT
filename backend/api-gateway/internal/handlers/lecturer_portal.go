@@ -18,40 +18,20 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-<<<<<<< HEAD:services/api-gateway/internal/handlers/lecturer_portal.go
-// portalResolveTenant maps an ?org= (the institution's domain OR its institution_id)
-// to a tenant_id. Everything the portal returns is then scoped to that tenant.
-func portalResolveTenant(ctx context.Context, pool *pgxpool.Pool, org string) (string, bool) {
-	org = strings.TrimSpace(org)
-	if org == "" {
-		return "", false
-	}
-	var tid string
-	err := pool.QueryRow(ctx,
-		`SELECT tenant_id::text FROM tenants WHERE lower(domain) = lower($1) OR lower(institution_id) = lower($1) LIMIT 1`,
-		org).Scan(&tid)
-	return tid, err == nil && tid != ""
-=======
 // portalResolveTenant returns THE single institution's tenant (the `org` arg is ignored now —
 // single-institution deployment). Kept as a function so callers are unchanged.
 func portalResolveTenant(ctx context.Context, pool *pgxpool.Pool, org string) (string, bool) {
 	tid := singleTenantID(ctx, pool)
 	return tid, tid != ""
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/api-gateway/internal/handlers/lecturer_portal.go
 }
 
 // portalResolveLecturer resolves (tenant, staff_id) → lecturer.
 func portalResolveLecturer(ctx context.Context, pool *pgxpool.Pool, tenantID, staffID string) (id, name string, ok bool) {
-<<<<<<< HEAD:services/api-gateway/internal/handlers/lecturer_portal.go
-	err := pool.QueryRow(ctx,
-		`SELECT lecturer_id::text, full_name FROM lecturers WHERE tenant_id = $1 AND staff_id = $2 LIMIT 1`,
-=======
 	// Case-insensitive + whitespace-tolerant match: staff IDs imported from spreadsheets often
 	// differ in case/trailing spaces from what a lecturer types, and an exact match wrongly
 	// reported "no lecturer with that staff ID" even though the ID exists.
 	err := pool.QueryRow(ctx,
 		`SELECT lecturer_id::text, full_name FROM lecturers WHERE tenant_id = $1 AND lower(btrim(staff_id)) = lower($2) LIMIT 1`,
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/api-gateway/internal/handlers/lecturer_portal.go
 		tenantID, strings.TrimSpace(staffID)).Scan(&id, &name)
 	return id, name, err == nil && id != ""
 }
@@ -187,12 +167,8 @@ func buildUnitAttendance(ctx context.Context, pool *pgxpool.Pool, tenantID, unit
 		sessWhere = fmt.Sprintf(" AND s.coordinator_id = $%d", len(sessArgs))
 	}
 	sRows, err := pool.Query(ctx, `
-<<<<<<< HEAD:services/api-gateway/internal/handlers/lecturer_portal.go
-		SELECT s.session_id::text, s.session_date::text, COALESCE(u.full_name, '')
-=======
 		SELECT s.session_id::text, s.session_date::text, COALESCE(u.full_name, ''),
 		       COALESCE(s.offering_id::text,'')
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/api-gateway/internal/handlers/lecturer_portal.go
 		FROM sessions s
 		LEFT JOIN users u ON u.user_id::text = s.coordinator_id AND u.tenant_id = s.tenant_id
 		WHERE s.tenant_id = $1 AND s.unit_id = $2`+sessWhere+`
@@ -203,16 +179,6 @@ func buildUnitAttendance(ctx context.Context, pool *pgxpool.Pool, tenantID, unit
 	sessions := []sess{}
 	sessIndex := map[string]int{}
 	sessionIDs := []string{}
-<<<<<<< HEAD:services/api-gateway/internal/handlers/lecturer_portal.go
-	for sRows.Next() {
-		var s sess
-		sRows.Scan(&s.SessionID, &s.Date, &s.Coordinator) //nolint:errcheck
-		sessIndex[s.SessionID] = len(sessions)
-		sessionIDs = append(sessionIDs, s.SessionID)
-		sessions = append(sessions, s)
-	}
-	sRows.Close()
-=======
 	// The cohorts these sessions belong to — the roster below is scoped to them.
 	seenOfferings := map[string]bool{}
 	for sRows.Next() {
@@ -234,7 +200,6 @@ func buildUnitAttendance(ctx context.Context, pool *pgxpool.Pool, tenantID, unit
 			shownOfferings = append(shownOfferings, id)
 		}
 	}
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/api-gateway/internal/handlers/lecturer_portal.go
 
 	type student struct {
 		StudentID string `json:"student_id"`
@@ -250,13 +215,10 @@ func buildUnitAttendance(ctx context.Context, pool *pgxpool.Pool, tenantID, unit
 		stIndex[id] = len(students)
 		students = append(students, student{StudentID: id, FullName: name, Present: make([]bool, len(sessions))})
 	}
-<<<<<<< HEAD:services/api-gateway/internal/handlers/lecturer_portal.go
-=======
 	// COHORT ISOLATION: the roster is only the students of the study sessions whose
 	// logs are actually on screen. Matching on (course, year, semester) alone pulled
 	// in every cohort of the programme, so a Weekend student surfaced in the Day
 	// cohort's logs. Anyone who genuinely checked in is still added below.
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/api-gateway/internal/handlers/lecturer_portal.go
 	stRows, err := pool.Query(ctx, `
 		SELECT se.student_id, se.full_name
 		FROM students_extended se
@@ -264,16 +226,12 @@ func buildUnitAttendance(ctx context.Context, pool *pgxpool.Pool, tenantID, unit
 		  AND se.course_id    = (SELECT course_id FROM course_units WHERE unit_id=$2 AND tenant_id=$1)
 		  AND se.current_year = (SELECT year      FROM course_units WHERE unit_id=$2 AND tenant_id=$1)
 		  AND se.semester     = (SELECT semester  FROM course_units WHERE unit_id=$2 AND tenant_id=$1)
-<<<<<<< HEAD:services/api-gateway/internal/handlers/lecturer_portal.go
-		ORDER BY se.full_name`, tenantID, unitID)
-=======
 		  AND (
 		        $3::text[] IS NULL
 		        OR se.offering_id::text = ANY($3::text[])
 		        OR (se.offering_id IS NULL AND '' = ANY($3::text[]))
 		      )
 		ORDER BY se.full_name`, tenantID, unitID, shownOfferings)
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/api-gateway/internal/handlers/lecturer_portal.go
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}

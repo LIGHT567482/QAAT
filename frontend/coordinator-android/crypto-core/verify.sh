@@ -45,7 +45,7 @@ SEALED=$("$JAVA" -cp "$JAR" ParityMainKt "$BK" "$PT")
 EP=$(python3 -c "import json,sys;print(json.loads(sys.argv[1])['encryptedPayload'])" "$SEALED")
 HM=$(python3 -c "import json,sys;print(json.loads(sys.argv[1])['hmac'])" "$SEALED")
 CS=$(python3 -c "import json,sys;print(json.loads(sys.argv[1])['packageChecksum'])" "$SEALED")
-( cd "$ROOT/services/sync-receiver" && go run ./cmd/parity "$BK" "$EP" "$HM" "$CS" "$PT" )
+( cd "$ROOT/backend/sync-receiver" && go run ./cmd/parity "$BK" "$EP" "$HM" "$CS" "$PT" )
 
 echo "[3/4] generate a Node-signed QR + HMAC vector"
 QR=$(docker exec infra-qr-generator-1 node -e '
@@ -83,7 +83,7 @@ PY
 
 echo "[6/7] rotating room code matches the Go server"
 SECRET="parity-secret"; T=1782604800
-GOCODE=$( cd "$ROOT/services/api-gateway" && go run ./cmd/roomcode "$SECRET" "$T" )
+GOCODE=$( cd "$ROOT/backend/api-gateway" && go run ./cmd/roomcode "$SECRET" "$T" )
 "$JAVA" -cp "$ENGJAR" RoomCodeParityMainKt "$SECRET" "$T" "$GOCODE" | tail -1
 
 echo "[7/8] lecturer gate: START/END + quorum + biometric + every rejection"
@@ -91,7 +91,7 @@ echo "[7/8] lecturer gate: START/END + quorum + biometric + every rejection"
 
 echo "[8/9] session package JSON parses into the server's attendance struct"
 PKG=$("$JAVA" -cp "$ENGJAR" PackageBuildMainKt "11111111-1111-1111-1111-111111111111" "coord-1" "hashAAA" "fpAAA" 1 "hashBBB" "fpBBB" 2)
-if echo "$PKG" | ( cd "$ROOT/services/sync-receiver" && go run ./cmd/pkgparse ) | grep -q "^records=2$"; then
+if echo "$PKG" | ( cd "$ROOT/backend/sync-receiver" && go run ./cmd/pkgparse ) | grep -q "^records=2$"; then
   echo "PACKAGE_CONTRACT_OK: server parses 2 records with the exact keys"
 else echo "PACKAGE_CONTRACT_FAIL"; exit 1; fi
 

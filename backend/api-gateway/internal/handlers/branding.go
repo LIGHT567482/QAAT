@@ -149,23 +149,7 @@ func GetPublicBranding(adminPool *pgxpool.Pool) http.HandlerFunc {
 			writeJSON(w, http.StatusOK, *bf)
 			return
 		}
-<<<<<<< HEAD:services/api-gateway/internal/handlers/branding.go
-		var b branding
-		err := adminPool.QueryRow(r.Context(), brandingSelect, tenantID).Scan(
-			&b.TenantID, &b.Name, &b.Domain, &b.LogoURL,
-			&b.Motto, &b.Slogan, &b.BrandColor,
-			&b.SidebarColor, &b.BackgroundColor, &b.BackgroundImage,
-			&b.BackgroundBlur, &b.BackgroundBright, &b.BackgroundContrast,
-			&b.BackgroundOverlay, &b.BackgroundOverlayO, &b.FooterColor, &b.TextColorLight, &b.TextColorDark, &b.Address,
-			&b.ActiveAcademicYear, &b.ActiveSemester)
-		if err != nil {
-			writeJSON(w, http.StatusNotFound, errBody("NOT_FOUND", "tenant not found"))
-			return
-		}
-		writeJSON(w, http.StatusOK, b)
-=======
 		writeJSON(w, http.StatusInternalServerError, errBody("NO_BRANDING", "branding unavailable"))
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/api-gateway/internal/handlers/branding.go
 	}
 }
 
@@ -190,21 +174,12 @@ func UpdateTenantBranding(adminPool *pgxpool.Pool) http.HandlerFunc {
 			BackgroundContrast int    `json:"background_contrast"`
 			BackgroundOverlay  string `json:"background_overlay_color"`
 			BackgroundOverlayO int    `json:"background_overlay_opacity"`
-<<<<<<< HEAD:services/api-gateway/internal/handlers/branding.go
-			FooterColor     string `json:"footer_color"`
-			TextColorLight  string `json:"text_color_light"`
-			TextColorDark   string `json:"text_color_dark"`
-			Motto           string `json:"motto"`
-			Slogan          string `json:"slogan"`
-			Address         string `json:"address"`
-=======
 			FooterColor        string `json:"footer_color"`
 			TextColorLight     string `json:"text_color_light"`
 			TextColorDark      string `json:"text_color_dark"`
 			Motto              string `json:"motto"`
 			Slogan             string `json:"slogan"`
 			Address            string `json:"address"`
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/api-gateway/internal/handlers/branding.go
 		}
 		if err := decodeJSON(r, &req); err != nil {
 			writeJSON(w, http.StatusBadRequest, errBody("INVALID_REQUEST", "malformed body"))

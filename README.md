@@ -96,7 +96,7 @@ make up            # docker compose up (full stack)
 
 ```bash
 # Go unit tests (integration tests skip without DB_URL)
-cd services/auth-service && go test ./...
+cd backend/auth-service && go test ./...
 
 # Integration tests (need running DB + Redis)
 DB_URL=postgres://... REDIS_URL=redis://... RSA_PRIVATE_KEY_PATH=keys/auth_private.pem \
@@ -115,7 +115,7 @@ cd tests/e2e && pnpm install && pnpm test
 ## Key design decisions
 
 ### PostgreSQL Row-Level Security
-Every query **must** `SET LOCAL app.current_tenant = '<uuid>'` before touching data. The `SetTenant` middleware in [services/api-gateway/internal/middleware/tenant.go](services/api-gateway/internal/middleware/tenant.go) does this automatically from the JWT `tenant_id` claim. This is never bypassed.
+Every query **must** `SET LOCAL app.current_tenant = '<uuid>'` before touching data. The `SetTenant` middleware in [backend/api-gateway/internal/middleware/tenant.go](backend/api-gateway/internal/middleware/tenant.go) does this automatically from the JWT `tenant_id` claim. This is never bypassed.
 
 ### Append-only attendance logs
 `attendance_logs` has a RESTRICTIVE RLS policy that blocks DELETE at the database level (`db/migrations/003_rls_policies.sql`). Corrections create new rows with `entry_method = MANUAL_OVERRIDE`, and the `qaat_app` DB role has DELETE revoked.
@@ -146,8 +146,8 @@ A single PostgreSQL cluster with RLS on all tables. `tenant_id` is always a UUID
 `.github/workflows/ci.yml` runs four jobs in parallel: auth-service (build + test), api-gateway (build + test), coordinator-pwa (typecheck + test), and db-migrations (apply + RLS verify). Each Go job runs `go mod tidy` first.
 
 ## Adding a new API endpoint
-1. Add a handler in `services/api-gateway/internal/handlers/`.
-2. Wire it in `services/api-gateway/internal/router/router.go` with `RequireRole()`.
+1. Add a handler in `backend/api-gateway/internal/handlers/`.
+2. Wire it in `backend/api-gateway/internal/router/router.go` with `RequireRole()`.
 3. Add the RLS `SET LOCAL` call via the `GetDB(ctx)` helper or acquire a connection directly.
 4. Document it in `docs/openapi.yaml`.
 5. Add an E2E test in `tests/e2e/specs/api.spec.ts`.

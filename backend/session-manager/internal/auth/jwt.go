@@ -5,7 +5,7 @@
 // it mints warden delegation links and exam clearance tokens, so an attacker who
 // could set X-Tenant-ID would otherwise forge those for any tenant.
 //
-// Mirrors services/sync-receiver/internal/auth (the established pattern).
+// Mirrors backend/sync-receiver/internal/auth (the established pattern).
 package auth
 
 import (

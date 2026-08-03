@@ -199,11 +199,7 @@ function CohortTimetable({ offering, slots, units, rows, onChanged, cohortLabel,
           <tbody>
             {rows.map(hour => (
               <tr key={hour}>
-<<<<<<< HEAD:apps/admin-dashboards/src/pages/shared/Timetable.tsx
-                <td style={timeCell}>{String(hour).padStart(2, '0')}:00<br />{String(hour + 1).padStart(2, '0')}:00</td>
-=======
                 <td style={timeCell}>{hourLabel(hour)}<br />{hourLabel(hour + 1)}</td>
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/pages/shared/Timetable.tsx
                 {days.map(d => {
                   const key = `${d}-${hour}`
                   if (covered.has(key)) return null // a block above spans into this cell
@@ -213,13 +209,6 @@ function CohortTimetable({ offering, slots, units, rows, onChanged, cohortLabel,
                     <td key={d} style={cell} rowSpan={span}>
                       {here.map(s => (
                         <div key={s.slot_id} style={card} title="Click × to remove">
-<<<<<<< HEAD:apps/admin-dashboards/src/pages/shared/Timetable.tsx
-                          <button onClick={() => del(s.slot_id)} style={delBtn}>×</button>
-                          <div style={{ fontWeight: 800, color: KIU_GREEN, fontSize: 12 }}>{s.unit_id}</div>
-                          <div style={{ fontSize: 12, fontWeight: 600 }}>{s.unit_name}</div>
-                          {s.lecturer_name && <div style={{ fontSize: 11, color: '#475569' }}>Lecturer: {s.lecturer_name}</div>}
-                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>{s.start_time}–{endTime(s.start_time, s.duration_minutes)}{s.room ? ` · Room: ${s.room}` : ''}</div>
-=======
                           {!readOnly && <button onClick={() => del(s.slot_id)} style={delBtn}>×</button>}
                           <div style={{ fontWeight: 800, color: KIU_GREEN, fontSize: 12 }}>{s.unit_id}</div>
                           <div style={{ fontSize: 12, fontWeight: 600 }}>{s.unit_name}</div>
@@ -229,7 +218,6 @@ function CohortTimetable({ offering, slots, units, rows, onChanged, cohortLabel,
                               <span title="This room is not in the managed room list, so it cannot be reported on. Add it under Admin → Rooms & Codes."
                                 style={{ color: '#b45309', cursor: 'help' }}> ⚠</span>
                             )}</div>
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/pages/shared/Timetable.tsx
                         </div>
                       ))}
                     </td>
@@ -257,18 +245,11 @@ function AddSlot({ offering, units, onDone, onCancel }: {
   offering: Offering; units: OverviewRow[]; onDone: () => void; onCancel: () => void
 }) {
   const ttDays = daysFor(offering.session_type)
-<<<<<<< HEAD:apps/admin-dashboards/src/pages/shared/Timetable.tsx
-  const [unit, setUnit] = useState('')
-  const [day, setDay] = useState(ttDays[0])
-  const [start, setStart] = useState(offering.session_type.toLowerCase().startsWith('eve') ? '17:00' : '08:00')
-  const [dur, setDur] = useState(60)
-=======
   const isEve = offering.session_type.toLowerCase().startsWith('eve')
   const [unit, setUnit] = useState('')
   const [day, setDay] = useState(ttDays[0])
   const [start, setStart] = useState(isEve ? '17:00' : '08:00')
   const [end, setEnd] = useState(isEve ? '18:00' : '09:00')
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/pages/shared/Timetable.tsx
   const [room, setRoom] = useState('')
   const [saving, setSaving] = useState(false)
   const uniqUnits = Array.from(new Map(units.map(u => [u.unit_id, u])).values())
@@ -303,12 +284,6 @@ function AddSlot({ offering, units, onDone, onCancel }: {
     <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
       <Field label="Unit"><select value={unit} onChange={e => setUnit(e.target.value)} style={sel_}><option value="">— select —</option>{uniqUnits.map(u => <option key={u.unit_id} value={u.unit_id}>{u.unit_id} — {u.unit_name}</option>)}</select></Field>
       <Field label="Day"><select value={day} onChange={e => setDay(Number(e.target.value))} style={sel_}>{ttDays.map(d => <option key={d} value={d}>{DAYS[d]}</option>)}</select></Field>
-<<<<<<< HEAD:apps/admin-dashboards/src/pages/shared/Timetable.tsx
-      <Field label="Start"><input type="time" value={start} onChange={e => setStart(e.target.value)} style={inp} /></Field>
-      <Field label="Minutes"><input type="number" min={15} max={300} value={dur} onChange={e => setDur(Number(e.target.value))} style={{ ...inp, width: 80 }} /></Field>
-      <Field label="Room"><input value={room} onChange={e => setRoom(e.target.value)} placeholder="e.g. C01 O.B." style={{ ...inp, width: 120 }} /></Field>
-      <button onClick={save} disabled={!unit || saving} style={{ ...btnGhost, background: KIU_GREEN, color: '#fff', borderColor: KIU_GREEN }}>{saving ? 'Saving…' : 'Add'}</button>
-=======
       <Field label="Start (HH:MM)"><input type="time" value={start} onChange={e => setStart(e.target.value)} style={inp} /></Field>
       <Field label="End (HH:MM)"><input type="time" value={end} onChange={e => setEnd(e.target.value)} style={{ ...inp, borderColor: dur <= 0 ? '#dc2626' : '#e2e8f0' }} /></Field>
       <Field label="Room">
@@ -328,7 +303,6 @@ function AddSlot({ offering, units, onDone, onCancel }: {
         </div>
       </Field>
       <button onClick={save} disabled={!unit || saving || dur <= 0} style={{ ...btnGhost, background: KIU_GREEN, color: '#fff', borderColor: KIU_GREEN, opacity: dur <= 0 ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Add'}</button>
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/pages/shared/Timetable.tsx
       <button onClick={onCancel} style={btnGhost}>Cancel</button>
     </div>
   )

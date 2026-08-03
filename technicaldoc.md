@@ -963,7 +963,7 @@ async function processOutboxQueue() {
 version: '3.9'
 services:
   api-gateway:
-    build: ./services/api-gateway
+    build: ./backend/api-gateway
     ports: ["8443:8443"]
     environment:
       - DB_URL=postgresql://qaat:secret@postgres:5432/qaat
@@ -996,7 +996,7 @@ services:
     ports: ["3000:3000"]
 
   admin-dashboards:
-    build: ./apps/admin-dashboards
+    build: ./frontend/admin-dashboards
     ports: ["3001:3001"]
 
 volumes:

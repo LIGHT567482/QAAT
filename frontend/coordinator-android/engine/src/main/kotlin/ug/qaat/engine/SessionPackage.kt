@@ -3,7 +3,7 @@ package ug.qaat.engine
 /**
  * Builds the plaintext session-package JSON that the sealer wraps and the Go
  * sync-receiver applies. The server reads ONLY `attendance_records[]` with these
- * exact snake_case keys (services/sync-receiver/internal/sync/receiver.go
+ * exact snake_case keys (backend/sync-receiver/internal/sync/receiver.go
  * writeAttendanceLogs), inserting `student_id_hash` into attendance_logs.student_id.
  * The other wrapper fields mirror apps/coordinator-pwa/src/sync/sealer.ts.
  */

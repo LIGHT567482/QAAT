@@ -13,7 +13,7 @@ import org.json.JSONObject
  * live-sessions panel and emergency standby. Used while online; the in-room session
  * flow stays fully offline via the manifest + local engine.
  *
- * Shapes mirror services/api-gateway/internal/handlers/coordinator_dashboard.go.
+ * Shapes mirror backend/api-gateway/internal/handlers/coordinator_dashboard.go.
  */
 class DashboardClient {
     private val http = Net.client()
@@ -22,10 +22,7 @@ class DashboardClient {
     data class Offering(
         val courseName: String, val sessionType: String, val studyYear: Int,
         val semester: Int, val level: String, val intake: String,
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/net/DashboardClient.kt
-=======
         val school: String = "", val department: String = "",
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/net/DashboardClient.kt
     )
     data class Unit(
         val unitId: String, val name: String, val year: Int, val semester: Int,
@@ -51,12 +48,8 @@ class DashboardClient {
         val offJson = j.optJSONObject("offering")
         val off = offJson?.let {
             Offering(it.optString("course_name"), it.optString("session_type"), it.optInt("study_year"),
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/net/DashboardClient.kt
-                it.optInt("semester"), it.optString("level"), it.optString("intake"))
-=======
                 it.optInt("semester"), it.optString("level"), it.optString("intake"),
                 it.optString("school"), it.optString("department"))
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/net/DashboardClient.kt
         }
         // Prefer the richer per-unit timetable slots when present (like the PWA does).
         val slots = j.optJSONArray("slots")
@@ -79,8 +72,6 @@ class DashboardClient {
         return Overview(off, units)
     }
 
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/net/DashboardClient.kt
-=======
     data class Lecturer(val lecturerId: String, val fullName: String)
     suspend fun lecturers(token: String): List<Lecturer> {
         val r = http.get("$base/api/v1/coordinator/lecturers") { auth(token) }
@@ -89,7 +80,6 @@ class DashboardClient {
         return (0 until arr.length()).map { i -> val l = arr.getJSONObject(i); Lecturer(l.optString("lecturer_id"), l.optString("full_name")) }
     }
 
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/net/DashboardClient.kt
     suspend fun students(token: String): List<Student> {
         val r = http.get("$base/api/v1/coordinator/students") { auth(token) }
         if (r.status.value !in 200..299) return emptyList()

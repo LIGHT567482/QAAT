@@ -150,40 +150,6 @@ func UpsertTimetableSlot(pool *pgxpool.Pool, rdb *redis.Client) http.HandlerFunc
 		}
 		var coordinatorID, sessionType string
 		_ = conn.QueryRow(r.Context(), `SELECT COALESCE(coordinator_id,''), COALESCE(session_type,'') FROM course_offerings WHERE offering_id=$1::uuid AND tenant_id=$2`, req.OfferingID, tenantID).Scan(&coordinatorID, &sessionType)
-<<<<<<< HEAD:services/api-gateway/internal/handlers/timetable_slots.go
-
-		// A WEEKEND cohort may only be scheduled on Sat/Sun; a Day/Evening cohort only on
-		// Mon–Fri. This stops "day units" appearing in a weekend cohort (and vice-versa).
-		if weekend := strings.Contains(strings.ToLower(sessionType), "weekend"); weekend != (req.DayOfWeek == 6 || req.DayOfWeek == 7) {
-			day := "a weekday (Mon–Fri)"
-			if weekend {
-				day = "a weekend day (Sat/Sun)"
-			}
-			writeJSON(w, http.StatusConflict, errBody("DAY_MISMATCH",
-				fmt.Sprintf("A %s cohort can only be timetabled on %s.", sessionType, day)))
-			return
-		}
-
-		// Clash guard: no two units in the SAME cohort may occupy overlapping time on the
-		// same day (two ranges overlap when each starts before the other ends). The exact
-		// slot being upserted is excluded so re-saving it isn't a self-clash.
-		var clashUnit, clashStart string
-		clashErr := conn.QueryRow(r.Context(), `
-			SELECT unit_id, to_char(start_time,'HH24:MI')
-			FROM timetable_slots
-			WHERE tenant_id = $1 AND offering_id = $2::uuid AND day_of_week = $3
-			  AND NOT (unit_id = $4 AND start_time = $5::time)
-			  AND start_time < ($5::time + make_interval(mins => $6))
-			  AND $5::time    < (start_time + make_interval(mins => duration_minutes))
-			LIMIT 1`,
-			tenantID, req.OfferingID, req.DayOfWeek, req.UnitID, req.StartTime, req.Duration).Scan(&clashUnit, &clashStart)
-		if clashErr == nil {
-			writeJSON(w, http.StatusConflict, errBody("SCHEDULE_CLASH",
-				fmt.Sprintf("That time clashes with %s at %s on the same day — a cohort can't have two units at once.", clashUnit, clashStart)))
-			return
-		}
-=======
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/api-gateway/internal/handlers/timetable_slots.go
 
 		// A WEEKEND cohort may only be scheduled on Sat/Sun; a Day/Evening cohort only on
 		// Mon–Fri. This stops "day units" appearing in a weekend cohort (and vice-versa).

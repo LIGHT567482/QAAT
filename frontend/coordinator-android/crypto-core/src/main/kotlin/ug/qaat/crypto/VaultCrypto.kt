@@ -11,7 +11,7 @@ import javax.crypto.spec.SecretKeySpec
 /**
  * VaultCrypto — the on-device port of apps/coordinator-pwa/src/crypto/vault-crypto.ts,
  * kept byte-for-byte compatible with the Go sync-receiver
- * (services/sync-receiver/internal/crypto/vault.go).
+ * (backend/sync-receiver/internal/crypto/vault.go).
  *
  * Device key = HKDF-SHA256(secret = server-issued binding key (UTF-8),
  *   salt = "QAAT-IndexedDB-Salt-v1", info = "coordinator-vault-key" | "coordinator-vault-hmac").

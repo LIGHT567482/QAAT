@@ -13,7 +13,7 @@ import ug.qaat.coordinator.db.RosterEntity
  * INHERITS everything the super-admin/tenant-admin set (roster hashes + QR serials, the
  * institution RSA public key, the student-hash key, the policy, the day's units).
  * Parsed with org.json (built into Android — no extra dependency). Shape mirrors
- * services/api-gateway/internal/handlers/manifest.go.
+ * backend/api-gateway/internal/handlers/manifest.go.
  */
 class ManifestClient(private val dao: AppDao) {
     private val http = Net.client()

@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../../lib/api'
-<<<<<<< HEAD:apps/admin-dashboards/src/pages/admin/AdminEmployeeAttendance.tsx
-=======
 import ExportButtons from '../../components/ExportButtons'
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/pages/admin/AdminEmployeeAttendance.tsx
 
 // Employee attendance from the check-in tablet. Admin uploads the tablet's export
 // (staff_id, title, full_name, datetime, in/out, comment) and reads the report:
@@ -15,10 +12,6 @@ function downloadText(name: string, content: string, type = 'text/csv') {
   const url = URL.createObjectURL(new Blob([content], { type })); const a = document.createElement('a')
   a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url)
 }
-<<<<<<< HEAD:apps/admin-dashboards/src/pages/admin/AdminEmployeeAttendance.tsx
-function csvCell(s: string) { return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
-=======
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/pages/admin/AdminEmployeeAttendance.tsx
 
 interface Row {
   staff_id: string; title: string; full_name: string; contact: string; comment: string
@@ -64,17 +57,6 @@ export default function AdminEmployeeAttendance() {
     finally { setImporting(false); if (fileRef.current) fileRef.current.value = '' }
   }
 
-<<<<<<< HEAD:apps/admin-dashboards/src/pages/admin/AdminEmployeeAttendance.tsx
-  function exportReport() {
-    if (!rep) return
-    const head = ['staff_id', 'name', 'contact', 'comment']
-    const lines = [head.join(',')]
-    for (const r of rep.rows) {
-      lines.push([r.staff_id, `${r.title ? r.title + ' ' : ''}${r.full_name}`, r.contact, r.comment].map(csvCell).join(','))
-    }
-    downloadText(`employee-attendance_${rep.from}_to_${rep.to}.csv`, lines.join('\n'))
-  }
-=======
   // The same date range the report is showing is what gets exported.
   const exportQuery = (() => {
     const p = new URLSearchParams()
@@ -82,7 +64,6 @@ export default function AdminEmployeeAttendance() {
     if (to) p.set('to', to)
     return p.toString()
   })()
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/pages/admin/AdminEmployeeAttendance.tsx
 
   return (
     <div>
@@ -99,12 +80,8 @@ export default function AdminEmployeeAttendance() {
         <Field label="From"><input type="date" value={from} onChange={e => setFrom(e.target.value)} style={inp} /></Field>
         <Field label="To"><input type="date" value={to} onChange={e => setTo(e.target.value)} style={inp} /></Field>
         <button onClick={load} style={btnSmall}>Apply</button>
-<<<<<<< HEAD:apps/admin-dashboards/src/pages/admin/AdminEmployeeAttendance.tsx
-        <button onClick={exportReport} disabled={!rep?.rows.length} style={btnSmall}>Export report</button>
-=======
         <ExportButtons base={`/api/v1/admin/tenants/${tenantId}/employee-attendance/export`}
           filename="employee-attendance" query={exportQuery} disabled={!rep?.rows.length} />
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/pages/admin/AdminEmployeeAttendance.tsx
       </div>
       {importMsg && <div style={{ background: importMsg.startsWith('Import failed') ? '#fef2f2' : '#f0fdf4', color: importMsg.startsWith('Import failed') ? '#b91c1c' : '#166534', padding: '10px 14px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{importMsg}</div>}
       {err && <div style={{ background: '#fef2f2', color: '#b91c1c', padding: '10px 14px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{err}</div>}

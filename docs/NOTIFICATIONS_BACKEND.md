@@ -100,7 +100,7 @@ Mark `delivered_at` on first fetch. Read-receipt aggregation for the admin "sent
 - **Read receipts:** POST `/read` when the coordinator opens a message (queued offline like replies).
 
 ## 4. Admin-dashboard side (the part that touches existing apps)
-A "Notifications" panel in `apps/admin-dashboards`: compose (type/scope/priority/subject/message/
+A "Notifications" panel in `frontend/admin-dashboards`: compose (type/scope/priority/subject/message/
 schedule), a sent list with Delivered/Read/Responded badges, and a thread view. This is the only piece
 outside the coordinator app — implement it last / confirm before touching the dashboards.
 

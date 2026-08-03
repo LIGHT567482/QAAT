@@ -8,7 +8,7 @@ before any Android work.
 ## What it does
 - `VaultCrypto` — HKDF-SHA256 device-key derivation (from the server-issued binding secret),
   AES-256-GCM `base64(iv‖ct‖tag)`, HMAC-SHA256, SHA-256, keyed student-id hash. Mirrors
-  `apps/coordinator-pwa/src/crypto/vault-crypto.ts` and the Go `services/sync-receiver/internal/crypto/vault.go`.
+  `apps/coordinator-pwa/src/crypto/vault-crypto.ts` and the Go `backend/sync-receiver/internal/crypto/vault.go`.
 - `Sealer` — seals a closed session into the package the sync-receiver expects (encrypted payload +
   HMAC + SHA-256 checksum + chunk count). Mirrors `sync/sealer.ts`.
 - `QrVerify` — RSA-2048 `SHA256withRSA` student-QR signature verify + the exact canonical body
@@ -35,7 +35,7 @@ export KOTLINC=/path/to/kotlinc/bin/kotlinc   # kotlinc 2.0.21 verified
 gateway/sync-receiver.)
 
 ## In the Android app
-This module becomes a Gradle sub-module of `apps/coordinator-android/`; the Ktor server calls
+This module becomes a Gradle sub-module of `frontend/coordinator-android/`; the Ktor server calls
 `Sealer.seal(...)` on session close and `QrVerify.verify(...)` / `VaultCrypto.hmacHex(...)` in the
 `POST /submit` check-in path. The binding secret is fetched at login (same as the PWA's
 `initDeviceKey`) and kept in the Android Keystore.

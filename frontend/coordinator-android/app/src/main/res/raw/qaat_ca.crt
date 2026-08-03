@@ -1,7 +1,4 @@
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/res/raw/qaat_ca.crt
-=======
 # QAAT local self-signed (LAN/offline server)
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/res/raw/qaat_ca.crt
 -----BEGIN CERTIFICATE-----
 MIIDRzCCAi+gAwIBAgIUB3TKN4KLXe/zg70dzLGUAUWUoMswDQYJKoZIhvcNAQEL
 BQAwFTETMBEGA1UEAwwKcWFhdC1sb2NhbDAeFw0yNjA3MDMxODMyMTVaFw0yODEw
@@ -22,8 +19,6 @@ YKRFUQMpSq4JHXHetlRbztOdtZiQ7nKO3Z6XFNPy883JSq8w84pf4uuoA7DbYuM+
 92h1RizdSFnCiJspjArLn/MVGNKawjGf1tyZ+RROxdZIlNftg6cLzsRHXmtVyBeY
 uHr9KmTGBsU6YriFu+EuKCfL9jkWHGsp2Va9
 -----END CERTIFICATE-----
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/res/raw/qaat_ca.crt
-=======
 # Google Trust Services Root R4 (anchors onrender.com chain on older Android)
 -----BEGIN CERTIFICATE-----
 MIIDejCCAmKgAwIBAgIQf+UwvzMTQ77dghYQST2KGzANBgkqhkiG9w0BAQsFADBX
@@ -68,4 +63,3 @@ AbEVtQwdpf5pLGkkeB6zpxxxYu7KyJesF12KwvhHhm4qxFYxldBniYUr+WymXUad
 DKqC5JlR3XC321Y9YeRq4VzW9v493kHMB65jUr9TU/Qr6cf9tveCX4XSQRjbgbME
 HMUfpIBvFSDJ3gyICh3WZlXi/EjJKSZp4A==
 -----END CERTIFICATE-----
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/res/raw/qaat_ca.crt

@@ -38,7 +38,7 @@ This review covers each role's authentication, authorization, and the data each 
 
 ### SUPER_ADMIN — the monetization/control plane (outside the tenant system)
 - **Auth:** password login against the sentinel **platform tenant** (`00000000-…-0`). Owns no academic data.
-- **Authz:** only the tenant-lifecycle + branding routes are `RequireRole(SUPER_ADMIN)`. Separate app/origin (`apps/super-admin`).
+- **Authz:** only the tenant-lifecycle + branding routes are `RequireRole(SUPER_ADMIN)`. Separate app/origin (`frontend/super-admin`).
 - **Privacy:** sees tenant metadata + branding, not student/lecturer PII.
 - ⚠️ **MFA not enforced** for SUPER_ADMIN (a compromised super-admin can suspend tenants / disrupt billing). 🔲 Require TOTP/WebAuthn for this role before production.
 

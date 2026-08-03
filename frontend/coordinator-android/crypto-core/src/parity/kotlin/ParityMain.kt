@@ -3,7 +3,7 @@ import ug.qaat.crypto.VaultCrypto
 
 /**
  * Parity harness (run on the JVM here): seal a known payload with a known binding
- * key and print the package as JSON. The Go verifier (services/sync-receiver/cmd/parity)
+ * key and print the package as JSON. The Go verifier (backend/sync-receiver/cmd/parity)
  * then decrypts it with the REAL sync-receiver crypto — proving the Kotlin coordinator
  * seal and the Go server decrypt are byte-compatible.
  *

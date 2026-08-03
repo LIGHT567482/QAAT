@@ -32,13 +32,8 @@ type openSessionRequest struct {
 type openSessionResponse struct {
 	SessionID        string `json:"session_id"`
 	TenantID         string `json:"tenant_id"`
-<<<<<<< HEAD:services/api-gateway/internal/handlers/sessions.go
-	CheckinCode      string `json:"checkin_code"`  // rotating (lecturer)
-	StudentCode      string `json:"student_code"`  // static (students)
-=======
 	CheckinCode      string `json:"checkin_code"` // rotating (lecturer)
 	StudentCode      string `json:"student_code"` // static (students)
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/api-gateway/internal/handlers/sessions.go
 	SecondsRemaining int    `json:"seconds_remaining"`
 	CheckinWindowEnd string `json:"checkin_window_end"`
 }
@@ -197,13 +192,8 @@ func OpenSession(pool *pgxpool.Pool) http.HandlerFunc {
 }
 
 type checkinCodeResponse struct {
-<<<<<<< HEAD:services/api-gateway/internal/handlers/sessions.go
-	Code             string `json:"code"`           // rotating — the LECTURER's live digit code
-	StudentCode      string `json:"student_code"`   // static — the STUDENT room code (does not rotate)
-=======
 	Code             string `json:"code"`         // rotating — the LECTURER's live digit code
 	StudentCode      string `json:"student_code"` // static — the STUDENT room code (does not rotate)
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/api-gateway/internal/handlers/sessions.go
 	SecondsRemaining int    `json:"seconds_remaining"`
 	SessionStatus    string `json:"session_status"`
 	CheckinCount     int    `json:"checkin_count"`

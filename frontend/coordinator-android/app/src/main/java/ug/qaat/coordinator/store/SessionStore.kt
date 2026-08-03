@@ -26,10 +26,6 @@ object SessionStore {
 
     fun init(context: Context) {
         if (::prefs.isInitialized) return
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
-        val key = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
-        prefs = EncryptedSharedPreferences.create(
-=======
         prefs = runCatching { create(context) }.getOrElse { first ->
             // The encrypted keyset can end up unreadable (e.g. after a reinstall or a keystore
             // change), which would otherwise SILENTLY break auto-login + offline caching. Wipe the
@@ -55,7 +51,6 @@ object SessionStore {
     private fun create(context: Context): SharedPreferences {
         val key = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
         return EncryptedSharedPreferences.create(
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
             context, "qaat_session", key,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
@@ -64,22 +59,13 @@ object SessionStore {
 
     // ── Session + credentials ────────────────────────────────────────────────
     fun saveSession(token: String, userId: String, tenantId: String, bindingKey: String?,
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
-                    name: String, email: String, role: String, title: String = "", regNo: String = "") {
-=======
                     name: String, email: String, role: String, title: String = "", regNo: String = "",
                     studentId: String = "", staffId: String = "", org: String = "") {
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
         prefs.edit().apply {
             putString("token", token); putString("userId", userId); putString("tenantId", tenantId)
             putString("bindingKey", bindingKey); putString("name", name)
             putString("email", email); putString("role", role)
             putString("title", title); putString("regNo", regNo)
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
-        }.apply()
-    }
-
-=======
             putString("studentId", studentId); putString("staffId", staffId); putString("org", org)
         }.apply()
     }
@@ -105,7 +91,6 @@ object SessionStore {
         prefs.edit().remove("cred_id").remove("cred_pw").remove("cred_org").remove("cred_email").apply()
     }
 
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
     /** Stored so an expired token can be refreshed without bothering the coordinator. */
     fun saveCredentials(email: String, password: String) {
         prefs.edit().putString("cred_email", email).putString("cred_pw", password).apply()
@@ -118,8 +103,6 @@ object SessionStore {
 
     val hasSession: Boolean get() = ::prefs.isInitialized && prefs.getString("token", null) != null
 
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
-=======
     /** Student attendance-cooldown deadline (epoch millis) after a device switch. */
     fun saveAttendBlockUntil(ms: Long) { if (::prefs.isInitialized) prefs.edit().putLong("block_until", ms).apply() }
     fun attendBlockUntil(): Long = if (::prefs.isInitialized) prefs.getLong("block_until", 0L) else 0L
@@ -141,7 +124,6 @@ object SessionStore {
     fun hasAttended(sessionId: String): Boolean =
         sessionId.isNotBlank() && attendedSet().contains(sessionId)
 
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
     // Light/dark preference — persisted so the chosen theme survives restarts.
     fun saveTheme(dark: Boolean) { if (::prefs.isInitialized) prefs.edit().putBoolean("dark", dark).apply() }
     fun restoreTheme() { if (::prefs.isInitialized) AppState.darkTheme = prefs.getBoolean("dark", false) }
@@ -151,8 +133,6 @@ object SessionStore {
     fun saveServerUrl(url: String?) { if (::prefs.isInitialized) prefs.edit().putString("server_url", url?.trim()).apply() }
     fun serverUrl(): String? = if (::prefs.isInitialized) prefs.getString("server_url", null) else null
 
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
-=======
     // Manual hotspot gateway IP (for phones that hide the hotspot interface from apps).
     fun saveHotspotIp(ip: String?) { if (::prefs.isInitialized) prefs.edit().putString("hotspot_ip", ip?.trim()?.takeIf { it.isNotBlank() }).apply() }
     fun hotspotIp(): String? = if (::prefs.isInitialized) prefs.getString("hotspot_ip", null) else null
@@ -172,7 +152,6 @@ object SessionStore {
         AppState.systemHotspotPass = prefs.getString("sys_pass", null)
     }
 
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
     /** Restore the session SCALARS into AppState (safe on the main thread — no DB). The
      *  cached manifest is hydrated separately (loadManifest) off the main thread.
      *  @return true if a session was restored. */
@@ -188,15 +167,11 @@ object SessionStore {
         AppState.coordinatorRegNo = prefs.getString("regNo", null)
         AppState.coordinatorEmail = prefs.getString("email", null)
         AppState.role = prefs.getString("role", null)
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
-        AppState.branding = restoreBranding()   // tenant identity shows offline too
-=======
         AppState.studentId = prefs.getString("studentId", null)
         AppState.staffId = prefs.getString("staffId", null)
         AppState.org = prefs.getString("org", null)
         AppState.branding = restoreBranding()   // tenant identity shows offline too
         restoreSystemHotspot()                  // hotspot-mode choice + cohort SSID/password
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
         return true
     }
 
@@ -227,8 +202,6 @@ object SessionStore {
 
     fun clear() { if (::prefs.isInitialized) prefs.edit().clear().apply() }
 
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
-=======
     /**
      * Same wipe, but SYNCHRONOUS — used by sign-out. apply() hands the write to a background
      * thread and returns; if the process dies in that window (a user swiping the app away right
@@ -237,20 +210,15 @@ object SessionStore {
      */
     fun clearNow() { if (::prefs.isInitialized) prefs.edit().clear().commit() }
 
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
     // ── Cached daily manifest (roster lives in Room; meta lives here) ─────────
     fun saveManifest(m: ManifestClient.Parsed) {
         val units = JSONArray().apply {
             m.units.forEach {
                 put(JSONObject().put("unit_id", it.unitId).put("unit_name", it.unitName)
                     .put("lecturer_staff_id", it.lecturerStaffId).put("lecturer_name", it.lecturerName)
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
-                    .put("lecturer_phone", it.lecturerPhone))
-=======
                     .put("lecturer_phone", it.lecturerPhone).put("duration_minutes", it.durationMinutes)
                     .put("day_of_week", it.dayOfWeek).put("start_time", it.startTime).put("venue_id", it.venueId)
                     .put("session_code", it.sessionCode))
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
             }
         }
         prefs.edit().apply {
@@ -276,14 +244,10 @@ object SessionStore {
                 val u = arr.getJSONObject(i)
                 val id = u.getString("unit_id")
                 units.add(ManifestClient.UnitInfo(id, u.optString("unit_name", id),
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
-                    u.optString("lecturer_staff_id", ""), u.optString("lecturer_name", ""), u.optString("lecturer_phone", "")))
-=======
                     u.optString("lecturer_staff_id", ""), u.optString("lecturer_name", ""), u.optString("lecturer_phone", ""),
                     u.optInt("duration_minutes", 0),
                     u.optInt("day_of_week", 0), u.optString("start_time", ""), u.optString("venue_id", ""),
                     u.optString("session_code", "")))
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/store/SessionStore.kt
                 roster[id] = dao.roster(id)   // roster cached in Room survives offline
             }
         }

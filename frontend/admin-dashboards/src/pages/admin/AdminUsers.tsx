@@ -439,14 +439,9 @@ function AcademicPeriodCard({ tenantId }: { tenantId: string }) {
             </div>
             {clrErr && <div style={{ background: '#fef2f2', color: '#b91c1c', padding: '8px 12px', borderRadius: 6, marginBottom: 10, fontSize: 13 }}>{clrErr}</div>}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-<<<<<<< HEAD:apps/admin-dashboards/src/pages/admin/AdminUsers.tsx
-              <input type="password" value={clrPw} onChange={e => setClrPw(e.target.value)} placeholder="Your admin password"
-                style={{ flex: 1, maxWidth: 260, padding: '8px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 14 }} />
-=======
               <PasswordInput value={clrPw} onChange={e => setClrPw(e.target.value)} placeholder="Your admin password"
                 wrapperStyle={{ flex: 1, maxWidth: 260 }}
                 style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 14 }} />
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/pages/admin/AdminUsers.tsx
               <button onClick={clearData} disabled={clrBusy || !clrPw || clrIntakes.length === 0} style={{ ...btn, background: '#b91c1c', opacity: (!clrPw || clrIntakes.length === 0) ? 0.5 : 1 }}>{clrBusy ? 'Archiving & clearing…' : 'Archive & clear'}</button>
             </div>
           </div>

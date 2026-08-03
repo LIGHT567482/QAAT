@@ -1,6 +1,6 @@
 # QAAT — API Endpoint Catalog
 
-**Platform version:** `1.0.0` (single source: `/VERSION`, `services/api-gateway/internal/version`, frontend `VITE_APP_VERSION`).
+**Platform version:** `1.0.0` (single source: `/VERSION`, `backend/api-gateway/internal/version`, frontend `VITE_APP_VERSION`).
 **API version:** `v1` — every JSON endpoint is namespaced under `/api/v1/…`. Bump the path prefix (`/api/v2`) for breaking changes; additive changes stay in `v1`.
 **Base URL:** the API gateway behind Caddy (HTTPS). Health probe: `GET /health` and `GET /api/v1/health` → `{status, service, version, timestamp}`.
 
@@ -19,7 +19,7 @@ All requests are TLS-terminated by Caddy → `api-gateway`. The gateway verifies
 | Governance | `VC`, `DVC`, `DQA_DIRECTOR`, `QA_OFFICER` | email + password |
 | Student | `STUDENT` | personal **QR** (passwordless) or email + password |
 
-> **The super-admin is intentionally outside the tenant system.** It owns no academic data; it exists only to register/suspend tenants, set their identity/branding, and (by design) gate monetization for this standalone SaaS. It lives in its own app (`apps/super-admin`, its own origin/port) and a sentinel "platform" tenant. Tenant admins are confined to their own tenant by `RequireOwnTenant`; they cannot create, list, or touch other tenants.
+> **The super-admin is intentionally outside the tenant system.** It owns no academic data; it exists only to register/suspend tenants, set their identity/branding, and (by design) gate monetization for this standalone SaaS. It lives in its own app (`frontend/super-admin`, its own origin/port) and a sentinel "platform" tenant. Tenant admins are confined to their own tenant by `RequireOwnTenant`; they cannot create, list, or touch other tenants.
 
 ---
 

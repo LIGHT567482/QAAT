@@ -15,18 +15,18 @@ This document covers deploying QAAT in three environments: **local development**
 |-----------|----------------------|------|-------|
 | postgres | `postgres:15-alpine` | 5432 | RLS-enforced, append-only `attendance_logs` |
 | redis | `redis:7-alpine` | 6379 | JWT `jti` blacklist + sync chunk store (7-day TTL) |
-| auth-service | `services/auth-service` | 8081 | RS256 JWT issuer; holds the **private** RSA key |
-| api-gateway | `services/api-gateway` | 8443 | Routing, JWT middleware, RBAC, RLS tenant `SET LOCAL` |
+| auth-service | `backend/auth-service` | 8081 | RS256 JWT issuer; holds the **private** RSA key |
+| api-gateway | `backend/api-gateway` | 8443 | Routing, JWT middleware, RBAC, RLS tenant `SET LOCAL` |
 | qr-generator | `services/qr-generator` | 3002 | RSA-2048 QR signing, email delivery |
-| session-manager | `services/session-manager` | — | Warden delegation, exam clearance tokens |
-| sync-receiver | `services/sync-receiver` | — | Chunked AES-256 upload, vector-clock dedup |
-| notification-service | `services/notification-service` | 3004 | SMTP + Web Push |
-| student-portal | `apps/student-portal` | 3003 | Passwordless reg-no progress portal |
+| session-manager | `backend/session-manager` | — | Warden delegation, exam clearance tokens |
+| sync-receiver | `backend/sync-receiver` | — | Chunked AES-256 upload, vector-clock dedup |
+| notification-service | `backend/notification-service` | 3004 | SMTP + Web Push |
+| student-portal | `frontend/student-portal` | 3003 | Passwordless reg-no progress portal |
 | mailhog | `mailhog/mailhog` | 1025 / 8025 | **Dev only** — local SMTP catcher |
 
 The three frontends — Coordinator PWA ([apps/coordinator-pwa](apps/coordinator-pwa)), Admin
-Dashboards ([apps/admin-dashboards](apps/admin-dashboards)), Student Portal
-([apps/student-portal](apps/student-portal)) — are static Vite builds hosted **separately on
+Dashboards ([frontend/admin-dashboards](frontend/admin-dashboards)), Student Portal
+([frontend/student-portal](frontend/student-portal)) — are static Vite builds hosted **separately on
 Vercel** (see §5), not part of the backend compose/k8s stack.
 
 ---
@@ -229,8 +229,8 @@ correct build command, SPA rewrite, and cache headers.
 
 | App | Vercel project root dir | Suggested domain |
 |-----|-------------------------|------------------|
-| Admin Dashboards | `apps/admin-dashboards` | `admin.qaat.platform` |
-| Student Portal | `apps/student-portal` | `student.qaat.platform` |
+| Admin Dashboards | `frontend/admin-dashboards` | `admin.qaat.platform` |
+| Student Portal | `frontend/student-portal` | `student.qaat.platform` |
 | Coordinator PWA | `apps/coordinator-pwa` | `app.qaat.platform` |
 
 ### 5.1 Set up each project
@@ -240,7 +240,7 @@ to the app folder above. Vercel reads each app's `vercel.json` for build setting
 
 ```bash
 npm i -g vercel
-cd apps/admin-dashboards && vercel        # link/create project, then `vercel --prod` to ship
+cd frontend/admin-dashboards && vercel        # link/create project, then `vercel --prod` to ship
 cd ../student-portal     && vercel
 cd ../coordinator-pwa    && vercel
 ```

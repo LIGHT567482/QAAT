@@ -4,7 +4,7 @@ import kotlin.math.ceil
 import kotlin.math.max
 
 /**
- * Lecturer gate — port of services/api-gateway/internal/handlers/lecturer_gate_scan.go.
+ * Lecturer gate — port of backend/api-gateway/internal/handlers/lecturer_gate_scan.go.
  * The lecturer scans the coordinator's gate QR and submits staff-ID + the live room code
  * (+ fingerprint/WebAuthn if enrolled). First valid scan = START; the second = END, which
  * only counts if a sufficient SHARE of enrolled students actually attended (anti-ghost-lecture).

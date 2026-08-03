@@ -24,10 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ug.qaat.coordinator.di.Graph
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/ui/DashboardScreen.kt
-=======
 import ug.qaat.coordinator.db.SessionEntity
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/ui/DashboardScreen.kt
 import ug.qaat.coordinator.net.DashboardClient
 import ug.qaat.coordinator.net.ManifestClient
 import ug.qaat.coordinator.store.SessionStore
@@ -58,16 +55,6 @@ fun DashboardScreen() {
     suspend fun refreshActive() { token?.let { active = runCatching { client.activeSessions(it) }.getOrDefault(emptyList()) } }
     suspend fun loadOnline() {
         val t = token ?: return
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/ui/DashboardScreen.kt
-        val ov = runCatching { client.overview(t) }.getOrNull()
-        overview = ov
-        ov?.offering?.let {   // cohort now lives in the 👤 profile popup
-            AppState.cohortLabel = listOf(it.courseName, it.sessionType, "Year ${it.studyYear}", "Sem ${it.semester}", it.level, it.intake)
-                .filter { s -> s.isNotBlank() }.joinToString(" · ")
-        }
-        students = runCatching { client.students(t) }.getOrDefault(emptyList())
-        last = runCatching { client.lastRoster(t) }.getOrNull()
-=======
         val m = AppState.manifest
         val ov = runCatching { client.overview(t) }.getOrNull()
         if (ov != null) {
@@ -115,7 +102,6 @@ fun DashboardScreen() {
                 DashboardClient.LastRoster(s.unitId, s.sessionDate, records.size, records.size, rows)
             } else null
         }
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/ui/DashboardScreen.kt
         refreshActive()
     }
 
@@ -129,10 +115,6 @@ fun DashboardScreen() {
             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(12.dp))
 
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/ui/DashboardScreen.kt
-        // Cohort details moved into the profile popup; only flag the unassigned case here.
-        if (overview?.offering == null && loaded) {
-=======
         // Cohort details moved into the profile popup; only flag the GENUINELY unassigned case.
         // A coordinator IS assigned if we have any cohort signal — units (online or cached), a
         // cohort label, or a cached manifest with units. Only then is the banner suppressed, so an
@@ -142,7 +124,6 @@ fun DashboardScreen() {
             (AppState.manifest?.units?.isNotEmpty() == true) ||
             !AppState.cohortLabel.isNullOrBlank()
         if (overview?.offering == null && loaded && !hasCohort) {
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/ui/DashboardScreen.kt
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
                 Text("You are not yet assigned to a session. Ask your administrator to add you as a coordinator of a session.",
                     Modifier.padding(14.dp), fontSize = 13.sp)
@@ -218,18 +199,11 @@ private fun TimetableView(units: List<DashboardClient.Unit>, sessionType: String
     val today = LocalDate.now().dayOfWeek.value
     var lo = 8; var hi = 19
     scheduled.forEach { val h = ttHourOf(it.start); if (h < lo) lo = h; if (h + ttSpan(it.durationMin) > hi) hi = h + ttSpan(it.durationMin) }
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/ui/DashboardScreen.kt
-    val hours = (lo until hi).toList()
-    val rowH = 40.dp
-    val dayW = 108.dp
-    val timeW = 40.dp
-=======
     lo = lo.coerceIn(0, 23); hi = hi.coerceIn(lo + 1, 24)   // clamp to a real clock — no 24:00/25:00 rows
     val hours = (lo until hi).toList()
     val rowH = 40.dp
     val dayW = 108.dp
     val timeW = 46.dp
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/ui/DashboardScreen.kt
     val brand = MaterialTheme.colorScheme.primary
     val line = MaterialTheme.colorScheme.outlineVariant
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
@@ -243,11 +217,7 @@ private fun TimetableView(units: List<DashboardClient.Unit>, sessionType: String
                 }
                 hours.forEach { h ->
                     Box(Modifier.width(timeW).height(rowH), contentAlignment = Alignment.TopCenter) {
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/ui/DashboardScreen.kt
-                        Text("%02d:00".format(h), fontSize = 10.sp, color = muted, modifier = Modifier.padding(top = 2.dp))
-=======
                         Text(ampmHour(h), fontSize = 9.sp, color = muted, modifier = Modifier.padding(top = 2.dp))
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/ui/DashboardScreen.kt
                     }
                 }
             }
@@ -302,10 +272,6 @@ private fun ttSpan(mins: Int): Int { val m = if (mins <= 0) 60 else mins; return
 @Composable
 private fun UnitsView(units: List<DashboardClient.Unit>) {
     if (units.isEmpty()) { EmptyNote("No units in this program yet."); return }
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/ui/DashboardScreen.kt
-    Column {
-        units.forEach { u ->
-=======
     // By default show ONLY the units scheduled for TODAY — a coordinator running today's
     // sessions shouldn't have to wade through units timetabled for other days. A toggle
     // reveals the full program catalogue when they actually need it.
@@ -325,7 +291,6 @@ private fun UnitsView(units: List<DashboardClient.Unit>) {
             return@Column
         }
         shown.forEach { u ->
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/ui/DashboardScreen.kt
             Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                 Column(Modifier.weight(1f)) {
                     Text(u.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
@@ -445,8 +410,6 @@ private fun EmptyNote(msg: String) {
         modifier = Modifier.fillMaxWidth().padding(20.dp))
 }
 
-<<<<<<< HEAD:apps/coordinator-android/app/src/main/java/ug/qaat/coordinator/ui/DashboardScreen.kt
-=======
 /** Whole-hour axis label: 8 → "8 AM", 12 → "12 PM", 13 → "1 PM", 24 → "12 AM". */
 private fun ampmHour(h: Int): String {
     val hh = ((h % 24) + 24) % 24
@@ -455,7 +418,6 @@ private fun ampmHour(h: Int): String {
     return "$h12 $suffix"
 }
 
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/ui/DashboardScreen.kt
 /** "14:30" → "2:30 PM". */
 private fun ampm(hhmm: String): String {
     if (hhmm.isBlank()) return ""

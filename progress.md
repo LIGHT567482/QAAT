@@ -39,9 +39,9 @@
 
 | Task | Deliverable | Status |
 |---|---|---|
-| Custom Auth Service — user store, bcrypt, `POST /api/v1/auth/login` | `services/auth-service/` | ✅ |
+| Custom Auth Service — user store, bcrypt, `POST /api/v1/auth/login` | `backend/auth-service/` | ✅ |
 | RS256 JWT issuance (24h TTL, `jti` claim) | `internal/crypto/jwt.go` | ✅ |
-| JWT validation middleware — RS256 verify + `jti` Redis blacklist check | `services/api-gateway/internal/middleware/jwt.go` | ✅ |
+| JWT validation middleware — RS256 verify + `jti` Redis blacklist check | `backend/api-gateway/internal/middleware/jwt.go` | ✅ |
 | RBAC middleware — role claim extraction, per-route role guards | `internal/middleware/rbac.go` | ✅ |
 | Account lockout — 5 failed attempts → 15-min lock | `internal/store/user_store.go` | ✅ |
 
@@ -55,7 +55,7 @@
 | Logout — blacklists `jti` with TTL = remaining lifetime | `POST /api/v1/auth/logout` | ✅ |
 | Rate limiting — 50 req/s per coordinator, 200/s global | `internal/middleware/ratelimit.go` | ✅ |
 | Multi-tenant middleware — `SET LOCAL app.current_tenant` on every request | `internal/middleware/tenant.go` | ✅ |
-| API Gateway skeleton — all routes stubbed with role guards | `services/api-gateway/internal/router/router.go` | ✅ |
+| API Gateway skeleton — all routes stubbed with role guards | `backend/api-gateway/internal/router/router.go` | ✅ |
 | CORS + security headers middleware | `internal/middleware/cors.go` | ✅ |
 | `go mod tidy` + `go.sum` generated (auth-service, api-gateway, session-manager, sync-receiver) | all `go.sum` files | ✅ |
 
@@ -71,7 +71,7 @@
 | Session state machine (XState v5) — IDLE → PENDING_LECTURER → ACTIVE → CLOSED/AUTO_CLOSED | `src/session/state-machine.ts` | ✅ |
 | Auth store (Zustand + persist) — login, logout, token expiry | `src/store/auth.ts` | ✅ |
 | Login page — email/password + TOTP MFA gate | `src/pages/Login.tsx` | ✅ |
-| Admin Dashboards scaffold — React + TypeScript + React Router v6 | `apps/admin-dashboards/` | ✅ |
+| Admin Dashboards scaffold — React + TypeScript + React Router v6 | `frontend/admin-dashboards/` | ✅ |
 | AuthContext — JWT session management, role extraction | `src/contexts/AuthContext.tsx` | ✅ |
 | RoleLayout — per-role sidebar nav + route guard (`<Navigate>`) | `src/layouts/RoleLayout.tsx` | ✅ |
 | Login page + role-aware redirect | `src/pages/Login.tsx` | ✅ |
@@ -108,10 +108,10 @@
 | Tenant policy + RSA public key included in manifest | `manifest.go:buildManifest` | ✅ |
 | Redis cache until midnight UTC | `manifest.go:ManifestDaily` | ✅ |
 | `GET /api/v1/manifest/daily` wired into API Gateway router | `internal/router/router.go` | ✅ |
-| **Session Manager service** (Go) | `services/session-manager/` | ✅ |
+| **Session Manager service** (Go) | `backend/session-manager/` | ✅ |
 | `POST /api/v1/sessions/warden-link` — crypto token + GPS geofence binding | `internal/handlers/warden.go` | ✅ |
 | `POST /api/v1/sessions/warden-validate` — Haversine geofence check | `internal/handlers/warden.go` | ✅ |
-| **Sync Receiver service** (Go) | `services/sync-receiver/` | ✅ |
+| **Sync Receiver service** (Go) | `backend/sync-receiver/` | ✅ |
 | `POST /api/v1/sync/init` — create upload record in DB | `internal/sync/receiver.go` | ✅ |
 | `POST /api/v1/sync/chunk/{id}/{idx}` — store chunk in Redis, HMAC-SHA256 ACK | `internal/sync/receiver.go` | ✅ |
 | `GET /api/v1/sync/resume/{id}` — return first missing chunk index | `internal/sync/receiver.go` | ✅ |
@@ -159,7 +159,7 @@
 | `GET /api/v1/reports/vc/audit.pdf` — 30-day PDF (fpdf) | Team B | `handlers/exports.go` | ✅ |
 | `GET /api/v1/reports/dqa/eligibility.csv` — full roster CSV | Team B | `handlers/exports.go` | ✅ |
 | Export buttons wired to VC + DQA dashboards | Team D | `VCOverview.tsx`, `DQAEligibility.tsx` | ✅ |
-| Student Status Portal — login + per-unit attendance % + progress bars | Team D | `apps/student-portal/` | ✅ |
+| Student Status Portal — login + per-unit attendance % + progress bars | Team D | `frontend/student-portal/` | ✅ |
 | K8s CronJob — SIS nightly pull at 02:00 UTC | Team A | `infra/k8s/sis-cronjob.yaml` | ✅ |
 | Full Kubernetes manifests — all 5 services + postgres + redis + cronjob | Team A1 | `infra/k8s/` | ✅ |
 | Security middleware — full CSP, HSTS, Permissions-Policy, CORP/COOP/COEP | Team A | `middleware/security.go` | ✅ |
@@ -173,7 +173,7 @@
 | Tenant onboarding API — list/create/suspend tenants, create users | `handlers/admin.go` | ✅ |
 | Admin panel — Tenant list + create form + user management | `pages/admin/AdminTenants.tsx`, `AdminUsers.tsx` | ✅ |
 | Admin routes wired into dashboard app + sidebar nav | `App.tsx` | ✅ |
-| Notification service — SMTP + Web Push (sync overdue, QR reissued, warden data) | `services/notification-service/` | ✅ |
+| Notification service — SMTP + Web Push (sync overdue, QR reissued, warden data) | `backend/notification-service/` | ✅ |
 | Playwright E2E tests — auth, dashboards, API security headers, cross-tenant isolation | `tests/e2e/specs/` (4 spec files) | ✅ |
 | `CLAUDE.md` — full codebase guide for future Claude sessions | `CLAUDE.md` | ✅ |
 

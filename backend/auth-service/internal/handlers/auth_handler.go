@@ -264,19 +264,6 @@ type loginRequest struct {
 }
 
 type loginResponse struct {
-<<<<<<< HEAD:services/auth-service/internal/handlers/auth_handler.go
-	AccessToken      string `json:"access_token"`
-	TokenType        string `json:"token_type"`
-	ExpiresIn        int64  `json:"expires_in"`
-	JTI              string `json:"jti"`
-	Role             string `json:"role"`
-	UserID           string `json:"user_id"`
-	FullName         string `json:"full_name,omitempty"`
-	Title            string `json:"title,omitempty"`
-	RegistrationNo   string `json:"registration_number,omitempty"`
-	TenantID         string `json:"tenant_id"`
-	DeviceBindingKey string `json:"device_binding_key,omitempty"`
-=======
 	AccessToken         string `json:"access_token"`
 	TokenType           string `json:"token_type"`
 	ExpiresIn           int64  `json:"expires_in"`
@@ -289,7 +276,6 @@ type loginResponse struct {
 	TenantID            string `json:"tenant_id"`
 	DeviceBindingKey    string `json:"device_binding_key,omitempty"`
 	ForcePasswordChange bool   `json:"force_password_change"`
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/auth-service/internal/handlers/auth_handler.go
 }
 
 type refreshRequest struct {
@@ -402,19 +388,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, loginResponse{
-<<<<<<< HEAD:services/auth-service/internal/handlers/auth_handler.go
-		AccessToken:      tokenStr,
-		TokenType:        "Bearer",
-		ExpiresIn:        int64(time.Until(expiresAt).Seconds()),
-		JTI:              jti,
-		Role:             string(user.Role),
-		UserID:           user.UserID,
-		FullName:         user.FullName,
-		Title:            user.Title,
-		RegistrationNo:   user.RegistrationNumber,
-		TenantID:         user.TenantID,
-		DeviceBindingKey: bindingKey,
-=======
 		AccessToken:         tokenStr,
 		TokenType:           "Bearer",
 		ExpiresIn:           int64(time.Until(expiresAt).Seconds()),
@@ -427,7 +400,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		TenantID:            user.TenantID,
 		DeviceBindingKey:    bindingKey,
 		ForcePasswordChange: user.ForcePasswordChange,
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/auth-service/internal/handlers/auth_handler.go
 	})
 }
 

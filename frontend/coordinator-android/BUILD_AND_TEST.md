@@ -36,7 +36,7 @@ go straight to the app, continue below.
   the hotspot — see [EMULATOR_TESTING.md](EMULATOR_TESTING.md)).
 
 ### 2.2 Open + sync the project
-`Android Studio ▸ Open ▸ apps/coordinator-android`. Let **Gradle sync** finish — it downloads the
+`Android Studio ▸ Open ▸ frontend/coordinator-android`. Let **Gradle sync** finish — it downloads the
 Android Gradle Plugin, Kotlin, Compose, Ktor, Room (this needs internet, once). Modules:
 `:crypto-core` + `:engine` (the proven logic) and `:app` (the Android shell).
 

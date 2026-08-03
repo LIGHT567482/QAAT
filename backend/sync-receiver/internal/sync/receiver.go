@@ -449,8 +449,6 @@ func writeAttendanceLogs(ctx context.Context, pool *pgxpool.Pool, payload []byte
 			pkg.Session.SessionID, tenantID, coordinatorID, pkg.Session.UnitID, pkg.Session.SessionDate, sessionStatus,
 		); err != nil {
 			return 0, 0, 0, fmt.Errorf("create session from package: %w", err)
-<<<<<<< HEAD:services/sync-receiver/internal/sync/receiver.go
-=======
 		}
 	}
 
@@ -479,7 +477,6 @@ func writeAttendanceLogs(ctx context.Context, pool *pgxpool.Pool, payload []byte
 			pkg.Lecturer.EndedAt, pkg.Lecturer.EndFingerprintHash,
 		); lerr != nil {
 			return 0, 0, 0, fmt.Errorf("seed lecturer attendance: %w", lerr)
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/sync-receiver/internal/sync/receiver.go
 		}
 	}
 
@@ -530,12 +527,6 @@ func writeAttendanceLogs(ctx context.Context, pool *pgxpool.Pool, payload []byte
 	}
 
 	for _, rec := range pkg.AttendanceRecords {
-<<<<<<< HEAD:services/sync-receiver/internal/sync/receiver.go
-		// Skip attendance for any session the lecturer never scanned (unverified lecture).
-		if !verified[rec.SessionID] {
-			rejectedNoLecturer++
-			continue
-=======
 		// TESTING PHASE: the lecturer-scan verification gate is RELAXED. Previously, attendance for a
 		// session with no lecturer scan was DROPPED here (continue), which is why a student who
 		// attended could still see 0% — their record never reached the summary. We now RECORD every
@@ -545,7 +536,6 @@ func writeAttendanceLogs(ctx context.Context, pool *pgxpool.Pool, payload []byte
 		// anti-cheat (AppState.ENFORCE_DEVICE_LOCK) before go-live.
 		if !verified[rec.SessionID] {
 			rejectedNoLecturer++
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/sync-receiver/internal/sync/receiver.go
 		}
 		studentID := hashToReg[rec.StudentIDHash]
 		if studentID == "" {

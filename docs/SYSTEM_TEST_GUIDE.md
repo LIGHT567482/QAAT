@@ -10,7 +10,7 @@ phones — then confirm the data. It is written for a **pilot on one Linux lapto
 > server. The **native Android app** is the *other* mode: it makes the **phone** the server (so no
 > laptop). Students' experience is identical either way. Use this laptop‑hub path for your **first**
 > real‑student test (least to go wrong); to test with the **app as the hub**, build it first and follow
-> [../apps/coordinator-android/BUILD_AND_TEST.md](../apps/coordinator-android/BUILD_AND_TEST.md).
+> [../frontend/coordinator-android/BUILD_AND_TEST.md](../frontend/coordinator-android/BUILD_AND_TEST.md).
 
 ---
 

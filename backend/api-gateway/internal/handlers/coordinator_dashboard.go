@@ -226,30 +226,16 @@ func CoordinatorAttendance(pool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 
-<<<<<<< HEAD:services/api-gateway/internal/handlers/coordinator_dashboard.go
-=======
-		// Scoped to the coordinator's own cohort only (their single most-recent offering).
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/api-gateway/internal/handlers/coordinator_dashboard.go
+		// Scoped to the cohorts this coordinator actually owns (their own offerings).
 		rows, err := conn.Query(r.Context(), `
 			SELECT se.student_id, se.full_name, s.unit_id, s.unit_name,
 			       s.sessions_held, s.sessions_attended, s.attendance_percentage,
 			       COALESCE(t.attendance_threshold, 75)
-<<<<<<< HEAD:services/api-gateway/internal/handlers/coordinator_dashboard.go
 			FROM course_offerings o
 			JOIN students_extended se ON se.offering_id = o.offering_id
 			JOIN student_attendance_summary s ON s.student_id = se.student_id AND s.tenant_id = se.tenant_id
 			JOIN tenants t ON t.tenant_id = o.tenant_id
 			WHERE o.coordinator_id = $1 AND o.tenant_id = $2
-=======
-			FROM students_extended se
-			JOIN student_attendance_summary s ON s.student_id = se.student_id AND s.tenant_id = se.tenant_id
-			JOIN tenants t ON t.tenant_id = se.tenant_id
-			WHERE se.tenant_id = $2
-			  AND se.offering_id = (
-			        SELECT offering_id FROM course_offerings
-			        WHERE coordinator_id = $1 AND tenant_id = $2
-			        ORDER BY created_at DESC LIMIT 1)
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/api-gateway/internal/handlers/coordinator_dashboard.go
 			ORDER BY s.attendance_percentage ASC, se.full_name`, coordID, tenantID)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, errBody("INTERNAL_ERROR", err.Error()))
@@ -453,16 +439,8 @@ func CoordinatorTrends(pool *pgxpool.Pool) http.HandlerFunc {
 			),
 			enrolled AS (
 			  SELECT COUNT(*)::int AS n FROM students_extended se
-<<<<<<< HEAD:services/api-gateway/internal/handlers/coordinator_dashboard.go
 			  JOIN course_offerings o ON o.offering_id = se.offering_id
 			  WHERE o.coordinator_id = $1 AND o.tenant_id = $2 AND se.enrollment_status = 'ACTIVE'
-=======
-			  WHERE se.tenant_id = $2 AND se.enrollment_status = 'ACTIVE'
-			    AND se.offering_id = (
-			          SELECT offering_id FROM course_offerings
-			          WHERE coordinator_id = $1 AND tenant_id = $2
-			          ORDER BY created_at DESC LIMIT 1)
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:backend/api-gateway/internal/handlers/coordinator_dashboard.go
 			)
 			SELECT to_char(wk,'YYYY-MM-DD'),
 			       COALESCE(SUM(attended),0)::int,

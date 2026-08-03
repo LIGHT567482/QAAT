@@ -1,10 +1,7 @@
 import { useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../../lib/api'
-<<<<<<< HEAD:apps/admin-dashboards/src/pages/admin/AdminEmployees.tsx
-=======
 import { OrgPicker, useOrg } from '../../components/OrgPicker'
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/pages/admin/AdminEmployees.tsx
 import { useQuery } from '../../lib/useApi'
 
 // General (non-teaching) staff whose attendance is tracked by the check-in tablet.
@@ -34,10 +31,7 @@ export default function AdminEmployees() {
   const { tenantId } = useParams<{ tenantId: string }>()
   const { status, data, refetch } = useQuery<Employee[]>(() => api.get(`/api/v1/admin/tenants/${tenantId}/employees`))
   const [creating, setCreating] = useState(false)
-<<<<<<< HEAD:apps/admin-dashboards/src/pages/admin/AdminEmployees.tsx
-=======
   const org = useOrg(tenantId ?? '')
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/pages/admin/AdminEmployees.tsx
   const [form, setForm] = useState({ ...BLANK })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -123,8 +117,6 @@ export default function AdminEmployees() {
             <Input label="Full name *" value={form.full_name} onChange={v => setForm(f => ({ ...f, full_name: v }))} />
             <Input label="Phone (contact)" value={form.phone} onChange={v => setForm(f => ({ ...f, phone: v }))} />
             <Input label="Email (contact)" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} />
-<<<<<<< HEAD:apps/admin-dashboards/src/pages/admin/AdminEmployees.tsx
-=======
             <Input label="Job title" value={form.job_title} onChange={v => setForm(f => ({ ...f, job_title: v }))} placeholder="Bursar / Systems Officer" />
             {/* Department was in the payload but had no field, so every employee was saved with a
                 blank one and the no-show report could not say whose office to chase. Non-teaching
@@ -136,7 +128,6 @@ export default function AdminEmployees() {
               onChange={next => setForm(f => ({ ...f, department: next.department }))}
               showSchool={false}
             />
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/pages/admin/AdminEmployees.tsx
           </div>
           <button onClick={handleCreate} disabled={saving || !form.staff_id.trim() || !form.full_name.trim()} style={{ ...btnPrimary, marginTop: 12 }}>
             {saving ? 'Saving…' : 'Save employee'}

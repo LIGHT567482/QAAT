@@ -1,5 +1,5 @@
 // Command parity decrypts a session package produced by the Kotlin crypto-core
-// (apps/coordinator-android/crypto-core) using the REAL sync-receiver crypto,
+// (frontend/coordinator-android/crypto-core) using the REAL sync-receiver crypto,
 // proving the Kotlin coordinator seal and the Go server decrypt are byte-compatible.
 //
 // Usage: go run ./cmd/parity <bindingKey> <encryptedPayload> <hmacHex> <checksumHex> <expectedPlaintext>

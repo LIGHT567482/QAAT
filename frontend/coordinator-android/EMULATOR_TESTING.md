@@ -25,7 +25,7 @@ From inside the emulator, **`10.0.2.2` = your host machine's `localhost`**. So:
 - Other devices **cannot** reach the emulator's server (NAT) — that's why multi‑phone needs real hardware.
 
 ## 2. Open + sync the project
-`File ▸ Open ▸ apps/coordinator-android`. Gradle sync downloads AGP 8.5 / Kotlin 2.0 / Compose / Ktor /
+`File ▸ Open ▸ frontend/coordinator-android`. Gradle sync downloads AGP 8.5 / Kotlin 2.0 / Compose / Ktor /
 Room. Modules: `:crypto-core` + `:engine` (plain Kotlin/JVM, already verified) and `:app` (Android).
 
 ## 3. Two small dev wirings to make the emulator useful
@@ -56,7 +56,7 @@ Without this, `/submit` correctly returns `SESSION_NOT_ACTIVE`.
 The logic is plain JVM — run it straight from Gradle:
 ```bash
 # the authoritative proof (9 checks incl. live backend round-trip):
-apps/coordinator-android/crypto-core/verify.sh
+frontend/coordinator-android/crypto-core/verify.sh
 ```
 (Optionally fold the `engine/src/test` mains into JUnit so `./gradlew :engine:test` runs them in Studio.)
 

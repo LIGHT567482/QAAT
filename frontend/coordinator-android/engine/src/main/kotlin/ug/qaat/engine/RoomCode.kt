@@ -5,7 +5,7 @@ import javax.crypto.spec.SecretKeySpec
 
 /**
  * RoomCode — HMAC-SHA256 TOTP (RFC 6238/4226 style) port of
- * services/api-gateway/internal/checkin/roomcode.go. The native coordinator app
+ * backend/api-gateway/internal/checkin/roomcode.go. The native coordinator app
  * now GENERATES the displayed code and VALIDATES the submitted one, so both must
  * match the server's algorithm exactly (10s step, 6 digits, ±1 step window).
  */

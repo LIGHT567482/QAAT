@@ -159,17 +159,12 @@ function adminNav(tenantId: string): NavLink[] {
     { label: 'Assignments',         path: `${t}/lecturer-assignments` },
     { label: 'Lecturer Attendance', path: `${t}/lecturer-attendance` },
     { label: 'Employees',           path: `${t}/employees` },
-<<<<<<< HEAD:apps/admin-dashboards/src/layouts/RoleLayout.tsx
-    { label: 'Reports',             path: '/admin/reports' },
-    { label: 'Venues',              path: `${t}/venues` },
-=======
     { label: 'At-risk Students',    path: '/admin/at-risk' },
     { label: 'Reports',             path: '/admin/reports' },
     { label: 'Rooms & Codes',       path: `${t}/rooms` },
     // The trail of who did what. It has been written to since the audit helper landed; before
     // that the table existed and nothing ever wrote a row to it.
     { label: 'Audit Trail',         path: '/admin/audit' },
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/layouts/RoleLayout.tsx
     { label: 'Settings',            path: '/admin/settings' },
   ]
 }

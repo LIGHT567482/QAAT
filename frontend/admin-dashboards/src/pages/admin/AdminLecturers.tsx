@@ -234,10 +234,6 @@ export default function AdminLecturers() {
               <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
                 <button onClick={() => startEdit(l)} style={btnSmall}>Edit</button>
                 <button onClick={() => makeEnroll(l)} style={{ ...btnSmall, marginLeft: 6, background: '#eef2ff', borderColor: '#c7d2fe', color: '#3730a3' }}>Enroll FP</button>
-<<<<<<< HEAD:apps/admin-dashboards/src/pages/admin/AdminLecturers.tsx
-                <button onClick={() => showQR(l)} style={{ ...btnSmall, marginLeft: 6, background: '#fef9c3', borderColor: '#fde68a', color: '#854d0e' }} title="Show this lecturer's QR — scan to open their dashboard">QR</button>
-=======
->>>>>>> 2bc3a5acd3a7a6745435eae9d592906741af4b26:frontend/admin-dashboards/src/pages/admin/AdminLecturers.tsx
               </td>
             </tr>
           ))}
