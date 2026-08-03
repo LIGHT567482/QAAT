@@ -43,4 +43,33 @@ coverage/
 *.out
 next.txt
 coordinator'sapp.md
-HowItWorks.md
+HowItWorks.mdinfra/render/secrets.generated.env
+
+# Gradle build cache (was wrongly tracked) + local Playwright artifacts
+.gradle/
+frontend/*/.gradle/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+
+# Android release signing secrets — never commit
+frontend/coordinator-android/keystore.properties
+frontend/coordinator-android/qaat-release.keystore
+*.keystore
+*.jks
+
+# Kotlin/Gradle build scratch
+frontend/coordinator-android/.kotlin/
+
+# Compiled Go service binaries. These were tracked by accident — ~58 MB of build
+# output that changes on every build, conflicts on every merge, and is rebuilt by
+# the Dockerfile anyway. The pattern is the binary sharing its directory's name.
+backend/api-gateway/api-gateway
+backend/auth-service/auth-service
+backend/sync-receiver/sync-receiver
+backend/session-manager/session-manager
+backend/notification-service/notification-service
+
+# Android build output
+frontend/coordinator-android/**/build/
+frontend/coordinator-android/.gradle/
+frontend/coordinator-android/local.properties

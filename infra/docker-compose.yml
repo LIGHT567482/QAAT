@@ -41,7 +41,7 @@ services:
 
   auth-service:
     build:
-      context: ../services/auth-service
+      context: ../backend/auth-service
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
@@ -76,7 +76,7 @@ services:
 
   api-gateway:
     build:
-      context: ../services/api-gateway
+      context: ../backend/api-gateway
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
@@ -91,7 +91,7 @@ services:
       DB_URL: postgres://${APP_DB_USER:-qaat_app}:${APP_DB_PASSWORD:-changeme_app}@postgres:5432/${DB_NAME:-qaat}?sslmode=disable
       ADMIN_DB_URL: postgres://${DB_USER:-qaat}:${DB_PASSWORD:-changeme_db}@postgres:5432/${DB_NAME:-qaat}?sslmode=disable
       REDIS_URL: redis://:${REDIS_PASSWORD:-changeme_redis}@redis:6379/0
-      CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003}
+      CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:3001,http://localhost:3002,http://localhost:3003}
       # Dedicated student/captive-portal origin, kept independent from the
       # coordinator/admin console. Used to build the lecturer-gate captive URL.
       STUDENT_CHECKIN_BASE_URL: ${STUDENT_CHECKIN_BASE_URL:-}
@@ -118,46 +118,9 @@ services:
       auth-service:
         condition: service_started
 
-  qr-generator:
-    build:
-      context: ../services/qr-generator
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    environment:
-      PORT: "3002"
-      # Connects as qaat_app (RLS-enforced); every query is run under a
-      # tenant-scoped GUC by db.withTenant().
-      DB_URL: postgres://${APP_DB_USER:-qaat_app}:${APP_DB_PASSWORD:-changeme_app}@postgres:5432/${DB_NAME:-qaat}?sslmode=disable
-      SMTP_HOST: mailhog
-      SMTP_PORT: "1025"
-      # qr-generator verifies the RS256 JWT itself (update.md H1).
-      RSA_PUBLIC_KEY_PATH: /run/secrets/auth_public.pem
-      JWT_ISSUER: ${AUTH_JWT_ISSUER:-qaat-auth}
-      JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:-qaat-api}
-      # Required — must be a real 32-byte hex key; no all-zeros fallback.
-      KEY_ENCRYPTION_KEY: ${KEY_ENCRYPTION_KEY}
-      # Dedicated student origin baked into the QR check-in URL, independent from
-      # the coordinator/admin console (e.g. http://attend.uni.edu). Falls back to
-      # CHECKIN_BASE_URL, then to a relative path when unset.
-      STUDENT_CHECKIN_BASE_URL: ${STUDENT_CHECKIN_BASE_URL:-}
-      CHECKIN_BASE_URL: ${CHECKIN_BASE_URL:-}
-      # Preferred QR destination: the student portal. When set, the QR encodes
-      # <portal>/?qr=<token> so scanning opens the portal (attend + track), not the
-      # single-session captive page.
-      STUDENT_PORTAL_URL: ${STUDENT_PORTAL_URL:-}
-      LOG_LEVEL: ${LOG_LEVEL:-debug}
-    volumes:
-      - ../keys/auth_public.pem:/run/secrets/auth_public.pem:ro
-    ports:
-      - "3012:3002"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  # Atomic sync of closed-session attendance packages from the coordinator PWA.
   sync-receiver:
     build:
-      context: ../services/sync-receiver
+      context: ../backend/sync-receiver
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
@@ -182,7 +145,7 @@ services:
   # Session lifecycle helpers (warden link, clearance token).
   session-manager:
     build:
-      context: ../services/session-manager
+      context: ../backend/session-manager
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
@@ -205,7 +168,7 @@ services:
 
   notification-service:
     build:
-      context: ../services/notification-service
+      context: ../backend/notification-service
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
@@ -226,23 +189,15 @@ services:
 
   # Frontends are fronted by Caddy (HTTPS) — no host port mapping; Caddy reaches
   # them by container name on the compose network.
-  super-admin:
-    build: { context: ../apps/super-admin, dockerfile: Dockerfile }
-    restart: unless-stopped
-    expose: ["3002"]
+  # super-admin app removed — single-institution (KIU) build has no platform owner.
 
   admin-dashboards:
-    build: { context: ../apps/admin-dashboards, dockerfile: Dockerfile }
+    build: { context: ../frontend/admin-dashboards, dockerfile: Dockerfile }
     restart: unless-stopped
     expose: ["3001"]
 
-  coordinator-pwa:
-    build: { context: ../apps/coordinator-pwa, dockerfile: Dockerfile }
-    restart: unless-stopped
-    expose: ["3000"]
-
   student-portal:
-    build: { context: ../apps/student-portal, dockerfile: Dockerfile }
+    build: { context: ../frontend/student-portal, dockerfile: Dockerfile }
     restart: unless-stopped
     expose: ["3003"]
 
@@ -252,9 +207,7 @@ services:
     restart: unless-stopped
     ports:
       - "8443:8443"
-      - "3000:3000"
       - "3001:3001"
-      - "3002:3002"
       - "3003:3003"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
@@ -263,9 +216,7 @@ services:
       - caddyconfig:/config
     depends_on:
       - api-gateway
-      - super-admin
       - admin-dashboards
-      - coordinator-pwa
       - student-portal
 
   # ─── Dev tooling ─────────────────────────────────────────────────────────
