@@ -67,6 +67,7 @@ function UsersInner() {
   const SEEDED_DEFAULTS: Record<string, string> = {
     LECTURER: 'lecturer',
     QA_PATROLLER: 'monitor',
+    COORDINATOR: 'coordinator',
   }
 
   const [creating, setCreating] = useState(false)

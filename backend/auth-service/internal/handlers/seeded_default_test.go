@@ -36,6 +36,8 @@ func TestMatchesSeededDefault(t *testing.T) {
 		{"monitor casing", "monitor", true, "Monitor", true},
 		{"monitor opens a patroller-seeded account", "Patroller", true, "monitor", true},
 		{"patroller opens a monitor-seeded account", "monitor", true, "patroller", true},
+		{"coordinator, as seeded", "coordinator", true, "coordinator", true},
+		{"coordinator casing", "coordinator", true, "Coordinator", true},
 		{"staff, as seeded", "staff", true, "staff", true},
 		{"staff casing", "staff", true, "Staff", true},
 

@@ -28,15 +28,19 @@ import (
 //     since. Telling the person the current word must open the older accounts, and vice-versa, so
 //     the two keys carry both words — an account holding either seed opens for whichever word its
 //     owner was told.
+//   - "coordinator" is a coordinator's first-login word: an administrator creates the account and
+//     the coordinator signs in once with the role's name, forced to replace it before the session
+//     flow will open.
 //   - "staff" is the bulk-import floor ([ImportedPasswordFor] in the gateway): an imported
 //     ADMIN, VC, dean, HOD or QA-role account that went in with a sheet rather than a chosen
 //     password is seeded to "staff" and forced to change it on first sign-in.
 var seededDefaults = map[string][]string{
-	"student": {"student", "Student"},
-	"lecturer": {"lecturer", "Lecturer"},
-	"patroller": {"patroller", "Patroller", "monitor", "Monitor"},
-	"monitor":   {"monitor", "Monitor", "patroller", "Patroller"},
-	"staff":     {"staff", "Staff"},
+	"student":     {"student", "Student"},
+	"lecturer":    {"lecturer", "Lecturer"},
+	"patroller":   {"patroller", "Patroller", "monitor", "Monitor"},
+	"monitor":     {"monitor", "Monitor", "patroller", "Patroller"},
+	"coordinator": {"coordinator", "Coordinator"},
+	"staff":       {"staff", "Staff"},
 }
 
 // matchesSeededDefault reports whether `submitted` is a case-variant of the account's OWN, still

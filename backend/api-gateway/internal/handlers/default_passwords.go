@@ -29,6 +29,13 @@ const (
 	// monitors "monitor"; anyone still holding an unused older account needs the old one.
 	DefaultMonitorPassword = "monitor"
 
+	// A coordinator is created by an administrator — in the admin dashboards, or inline while a
+	// cohort is being set up — and is never asked to choose a password at that moment. Same
+	// treatment as a monitor: a known first-login word, force_password_change set, replaced
+	// before the session flow will open. The word is the role, so there is nothing to look up:
+	// a coordinator signs in once with "coordinator" and must change it immediately.
+	DefaultCoordinatorPassword = "coordinator"
+
 	// The oversight roles — ADMIN, VC, DVC, DEAN, HOD, TLC, the QA offices — are normally created
 	// one at a time by an administrator who chooses a password on the spot. A BULK IMPORT has
 	// nobody to do that: a file of eighty deans and heads of department cannot carry eighty
@@ -55,6 +62,8 @@ func DefaultPasswordFor(role string) string {
 		return DefaultLecturerPassword
 	case "QA_PATROLLER":
 		return DefaultMonitorPassword
+	case "COORDINATOR":
+		return DefaultCoordinatorPassword
 	}
 	return ""
 }
