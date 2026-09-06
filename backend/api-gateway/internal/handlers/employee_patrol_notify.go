@@ -1,6 +1,6 @@
 package handlers
 
-// Telling somebody their office was found empty.
+// Telling somebody what the office round recorded.
 //
 // AN EMPTY OFFICE IS AN ACCUSATION, and the lecture round learned what that costs. A patrol alert
 // used to arrive under the patroller's own name, so a lecturer opened their inbox and read "From
@@ -26,13 +26,23 @@ package handlers
 // is: their head of department. That is a worse remedy than the lecturer's and it is worth saying
 // so plainly rather than pretending the two are equivalent.
 //
-// ONLY ABSENT IS REPORTED. AT_OFFICE and ELSEWHERE_ON_DUTY notify nobody. Email and WhatsApp are
-// interruptive channels with no inbox to leave things in; a message on every visit trains the
-// recipient to ignore the channel, and then the one that needed reading arrives in a stream they
-// have stopped opening. The cost of that choice is real and should not be glossed: the only time
-// an employee ever hears from QA is when an office was empty, which reads as purely punitive.
-// That is mitigated by the wording below, not by adding noise — which is why the "read together"
-// sentence is load-bearing rather than decorative.
+// TWO MESSAGES, WITH DIFFERENT FREQUENCIES. Every visit the round syncs produces an email and a
+// WhatsApp to the person it was about:
+//
+//   - AT_OFFICE / ELSEWHERE_ON_DUTY — a CONFIRMATION that their attendance was taken, keyed to the
+//     SPECIFIC visit. "They receive an email each time their attendance is taken" is the literal
+//     requirement: a morning round and an afternoon round are two attendances and two messages.
+//     The visit id is what stops a RETRIED sync re-sending the same row.
+//   - ABSENT — the warning below, deduped to ONE per person per day. An accusation is not a
+//     confirmation; telling the same person three times in one morning that their office was
+//     empty is not three pieces of information, it is one piece of information repeated until it
+//     becomes harassment. A correction that flips ELSEWHERE→ABSENT must still reach them, and
+//     AlreadySent on the day is the single source of truth for whether it already did.
+//
+// The present-verdict confirmation is what stops the channel from reading as purely punitive:
+// the only time an employee ever hears from QA used to be when an office was empty. Now the same
+// round that records them present tells them so. The absence message is still worded as a record
+// rather than a charge — the "read together" sentence is load-bearing rather than decorative.
 
 import (
 	"bytes"
@@ -49,6 +59,48 @@ import (
 
 // KindEmployeeOfficeAbsent joins the EMPLOYEE_* family in notification_log (migration 073).
 const KindEmployeeOfficeAbsent = "EMPLOYEE_OFFICE_ABSENT"
+
+// KindEmployeeAttendanceTaken is the present-verdict CONFIRMATION — keyed on the visit, not the
+// day, because the requirement is one message per time attendance is taken (see the file header).
+const KindEmployeeAttendanceTaken = "EMPLOYEE_ATTENDANCE_TAKEN"
+
+// attendanceTakenMessage builds the confirmation a person gets when the round recorded them as
+// present. Deliberately the inverse of the absence warning: it names the door and the moment too,
+// it never names the monitor, and where the absence message must not claim somebody was away, this
+// one may plainly say what was recorded — there is no accusation here to soften.
+func attendanceTakenMessage(office, visitDate, visitTime, status string) (subject, body string) {
+	when := lectureWhen(visitDate, visitTime)
+	where := strings.TrimSpace(office)
+
+	subject = "QA office round — attendance recorded"
+	if when != "" {
+		subject += " — " + when
+	}
+
+	// What was written on the row. Only the two present verdicts reach this message, but the
+	// fallback keeps it readable if a future verdict reuses the builder.
+	recorded := "at your desk"
+	if status == "ELSEWHERE_ON_DUTY" {
+		recorded = "on duty elsewhere"
+	}
+
+	var b strings.Builder
+	b.WriteString("A QA office round called at ")
+	if where != "" {
+		b.WriteString(where)
+	} else {
+		b.WriteString("your office")
+	}
+	if when != "" {
+		b.WriteString(" on " + when)
+	}
+	b.WriteString(" and recorded you as " + recorded + ".\n\n")
+	b.WriteString("This is the quality-assurance record of that moment. It is filed beside the " +
+		"attendance record from the terminal — a round never moves what the machine recorded, it " +
+		"adds a second account of the same day, and the two are read together.")
+
+	return subject, b.String()
+}
 
 // officeAbsenceMessage builds the words. Separated from the sending so the rules above can be
 // pinned by tests — most of them are satisfied by an ABSENCE from the text, which is exactly what
@@ -110,6 +162,52 @@ func notifyOfficeAbsence(r *http.Request, pool *pgxpool.Pool, tenantID, tenantNa
 	}
 
 	subject, body := officeAbsenceMessage(t.Office, t.VisitDate, t.VisitTime)
+	payload, _ := json.Marshal(map[string]interface{}{
+		"tenant":  tenantName,
+		"subject": subject,
+		"message": body,
+		"recipients": []map[string]string{{
+			"name": t.Name, "email": t.Email, "phone": t.Phone, "department": t.Department,
+		}},
+	})
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		notifyURL()+"/notify/direct", bytes.NewReader(payload))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 10 * time.Second}
+	if resp, err := client.Do(req); err == nil {
+		_ = resp.Body.Close()
+	}
+}
+
+// notifyAttendanceTaken confirms a present verdict. Best-effort throughout, same as the absence
+// notice: the visit is the record that matters, the message is a courtesy on top of it.
+//
+// The claim is keyed on the VISIT, not the person-day: the whole point is an email each time
+// attendance is taken, so two rounds in one day are two emails. What the visit id still buys is
+// retry safety — a sync that is tried twice must not tell the person twice about the same minute.
+func notifyAttendanceTaken(r *http.Request, pool *pgxpool.Pool, tenantID, tenantName string, t officeAbsenceTarget, status string) {
+	if strings.TrimSpace(t.Email) == "" && strings.TrimSpace(t.Phone) == "" {
+		return
+	}
+
+	day, err := clock.ParseDate(t.VisitDate)
+	if err != nil {
+		day = clock.Now()
+	}
+	key := strings.TrimSpace(t.VisitID)
+	if key == "" {
+		key = t.StaffID
+	}
+	already, err := scheduler.AlreadySent(r.Context(), pool, tenantID,
+		KindEmployeeAttendanceTaken, key, day, "", "EMAIL,WHATSAPP")
+	if err != nil || already {
+		return
+	}
+
+	subject, body := attendanceTakenMessage(t.Office, t.VisitDate, t.VisitTime, status)
 	payload, _ := json.Marshal(map[string]interface{}{
 		"tenant":  tenantName,
 		"subject": subject,

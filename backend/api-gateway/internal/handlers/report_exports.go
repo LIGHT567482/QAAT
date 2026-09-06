@@ -14,12 +14,15 @@ package handlers
 // is looking at, and every filter, role guard and org scope applies unchanged.
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"unicode"
 
 	"github.com/go-pdf/fpdf"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -116,20 +119,23 @@ func writeReportXLSX(w http.ResponseWriter, filename string, t reportTable) {
 	_, _ = w.Write(data)
 }
 
-// writeReportPDF sends the table as a landscape A4 PDF: institution letterhead, a
-// banded grid that repeats its header on every page, and a page counter.
+// writeReportPDF sends the table as a landscape A4 PDF: the institution logo + a report
+// letterhead, a banded grid that repeats its header on every page, and a page counter. Cells
+// WRAP to their full height instead of clipping, so a long name or finding is never lost.
 func writeReportPDF(w http.ResponseWriter, filename, institution string, t reportTable) {
 	const (
 		pageW   = 297.0 // A4 landscape
+		pageH   = 210.0
 		margin  = 12.0
 		usableW = pageW - 2*margin
+		bottom  = 16.0
 	)
 	pdf := fpdf.New("L", "mm", "A4", "")
 	pdf.SetMargins(margin, margin, margin)
-	pdf.SetAutoPageBreak(true, 16)
+	pdf.SetAutoPageBreak(true, bottom)
 	// Every string below goes through this. The core fonts are cp1252, and handing them raw UTF-8
 	// is what turned every em dash into "â€"". See report_text.go — it also has to happen BEFORE
-	// the width measurement and the clip loop further down, or both operate on the wrong bytes.
+	// the width measurements further down, or those operate on the wrong bytes.
 	enc := pdfEncoder(pdf)
 
 	// Column widths from the relative weights (equal when none were given).
@@ -160,7 +166,8 @@ func writeReportPDF(w http.ResponseWriter, filename, institution string, t repor
 		pdf.SetFont("Helvetica", "", 8)
 		pdf.SetTextColor(15, 23, 42)
 	}
-	// Repeat the column header after every automatic page break.
+	// Repeat the column header after every page break — the manual ones below included, because
+	// AddPage on a later page routes the page's start through this function.
 	pdf.SetHeaderFunc(func() {
 		if pdf.PageNo() == 1 {
 			return
@@ -174,7 +181,34 @@ func writeReportPDF(w http.ResponseWriter, filename, institution string, t repor
 		pdf.CellFormat(0, 6, fmt.Sprintf("Page %d", pdf.PageNo()), "", 0, "C", false, 0, "")
 	})
 
+	// The institution's logo from the embedded brand.json, when it is a raster data-URL fpdf can
+	// actually draw. Probed on a throwaway instance first so a corrupt logo can never poison the
+	// real document — the letterhead degrades to text-only and the report still ships.
+	logoOK := false
+	if data, imageType, ok := brandLogoPNG(); ok {
+		probe := fpdf.New("L", "mm", "A4", "")
+		probe.RegisterImageOptionsReader("inst_logo",
+			fpdf.ImageOptions{ImageType: imageType, ReadDpi: false}, bytes.NewReader(data))
+		if probe.Error() == nil {
+			pdf.RegisterImageOptionsReader("inst_logo",
+				fpdf.ImageOptions{ImageType: imageType, ReadDpi: false}, bytes.NewReader(data))
+			logoOK = true
+		}
+	}
+
 	pdf.AddPage()
+	const logoSize = 22.0
+	titleX := margin
+	titleY := 15.0
+	if logoOK {
+		// ImageOptions{} here means preserve the registered layout (a portrait 1:1 square); the
+		// 0/"" width/height pair lets fpdf honour it. Give the logo the same banded square the
+		// letterhead title spans, so a banner-shaped logo does not stretch the layout.
+		pdf.ImageOptions("inst_logo", margin, titleY, logoSize, logoSize, false,
+			fpdf.ImageOptions{}, 0, "")
+		titleX = margin + logoSize + 6
+	}
+	pdf.SetXY(titleX, titleY+1)
 	pdf.SetFont("Helvetica", "B", 15)
 	pdf.SetTextColor(15, 23, 42)
 	title := t.Title
@@ -182,6 +216,7 @@ func writeReportPDF(w http.ResponseWriter, filename, institution string, t repor
 		title = institution + " — " + t.Title
 	}
 	pdf.CellFormat(0, 8, enc(title), "", 1, "L", false, 0, "")
+	pdf.SetX(titleX)
 	pdf.SetFont("Helvetica", "", 9)
 	pdf.SetTextColor(100, 116, 139)
 	sub := t.Subtitle
@@ -192,29 +227,51 @@ func writeReportPDF(w http.ResponseWriter, filename, institution string, t repor
 	pdf.Ln(3)
 
 	header()
+	const rowH = 6.0
 	for i, row := range t.Rows {
+		// Wrap, never clip. The old loop trimmed a long cell one byte at a time until it fit,
+		// which is how a printed report lost the tail of exactly the finding it was printed for.
+		// Every cell now measures its own wrapped lines in the SAME font the row will print in,
+		// the row grows to the tallest cell, MultiCell lays each cell's lines in place, and the
+		// banded grid is drawn as rectangles around the finished row — nothing is cut.
+		cellText := make([]string, len(t.Headers))
+		colLines := make([]int, len(t.Headers))
+		maxLines := 1
+		for j := range t.Headers {
+			if j < len(row) {
+				cellText[j] = enc(row[j])
+			}
+			colLines[j] = len(pdf.SplitLines([]byte(cellText[j]), widths[j]-2))
+			if colLines[j] > maxLines {
+				maxLines = colLines[j]
+			}
+		}
+		rowFullH := rowH * float64(maxLines)
+		if pdf.GetY()+rowFullH > pageH-bottom {
+			// The whole row advances to a fresh page, header printed; a row is never split.
+			// (SetAutoPageBreak(true, bottom) still guards the theoretical over-tall row.)
+			pdf.AddPage()
+		}
+		rowY := pdf.GetY()
 		if i%2 == 0 {
 			pdf.SetFillColor(248, 250, 252)
 		} else {
 			pdf.SetFillColor(255, 255, 255)
 		}
+		x := margin
 		for j := range t.Headers {
-			cell := ""
-			if j < len(row) {
-				cell = enc(row[j])
-			}
-			// Clip rather than wrap, so every record stays on exactly one line.
-			//
-			// Safe to trim a byte at a time ONLY because enc() ran first: the text is now
-			// single-byte cp1252, so one byte is one character. On the raw UTF-8 it used to
-			// receive, this loop could stop mid-rune and leave a broken character behind — the
-			// clipper manufacturing the very corruption it was trimming to avoid.
-			for pdf.GetStringWidth(cell) > widths[j]-2 && len(cell) > 1 {
-				cell = cell[:len(cell)-1]
-			}
-			pdf.CellFormat(widths[j], 6, cell, "1", 0, "L", true, 0, "")
+			pdf.Rect(x, rowY, widths[j], rowFullH, "F")
+			pdf.Rect(x, rowY, widths[j], rowFullH, "D")
+			x += widths[j]
 		}
-		pdf.Ln(-1)
+		x = margin
+		pdf.SetTextColor(15, 23, 42)
+		for j := range t.Headers {
+			pdf.SetXY(x, rowY)
+			pdf.MultiCell(widths[j], rowH, cellText[j], "", "L", false)
+			x += widths[j]
+		}
+		pdf.SetXY(margin, rowY+rowFullH)
 	}
 	if len(t.Rows) == 0 {
 		pdf.SetFont("Helvetica", "I", 9)
@@ -225,6 +282,38 @@ func writeReportPDF(w http.ResponseWriter, filename, institution string, t repor
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
 	_ = pdf.Output(w)
+}
+
+// brandLogoPNG returns the institution logo from the embedded brand.json as raw image bytes plus
+// the fpdf ImageType ("png"/"jpg"), or ok=false when there is none fpdf can draw: no logo, an
+// https URL (the PDF builder runs server-side and won't fetch the network), webp/gif, or a
+// base64 payload that fails to decode. Whitespace between the prefix and payload is ignored.
+func brandLogoPNG() (data []byte, imageType string, ok bool) {
+	bf := brandFile()
+	if bf == nil {
+		return nil, "", false
+	}
+	for _, p := range []struct{ prefix, typ string }{
+		{"data:image/png;base64,", "png"},
+		{"data:image/jpeg;base64,", "jpg"},
+		{"data:image/jpg;base64,", "jpg"},
+	} {
+		if !strings.HasPrefix(bf.LogoURL, p.prefix) {
+			continue
+		}
+		raw := strings.Map(func(r rune) rune {
+			if unicode.IsSpace(r) {
+				return -1
+			}
+			return r
+		}, strings.TrimPrefix(bf.LogoURL, p.prefix))
+		decoded, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil || len(decoded) == 0 {
+			return nil, "", false
+		}
+		return decoded, p.typ, true
+	}
+	return nil, "", false
 }
 
 // ─── Student attendance ───────────────────────────────────────────────────────

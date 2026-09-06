@@ -4,17 +4,19 @@ import { api } from '../../lib/api'
 import { OrgPicker, useOrg } from '../../components/OrgPicker'
 import { useQuery } from '../../lib/useApi'
 
-// General (non-teaching) staff whose attendance is tracked by the check-in tablet.
-// Separate registry from lecturers, with its own bulk import/export template.
+// General (non-teaching) staff AND administrators, monitored by the QA office round and the
+// check-in tablet. Separate registry from lecturers, with its own bulk import/export template.
+// Registration asks for the same things the lecturer form does — title, name, staff id,
+// whatsapp, email — plus the department, exactly as monitored staff are filed under.
 //
-// `department` is required — and must be one of the SUPPORT departments, the ones that belong to
-// no faculty. An employee with no department is a person the no-show report cannot chase.
+// `department` is required and must be a REAL department (SUPPORT or academic): an employee with
+// no department is a person the no-show report cannot chase.
 //
 // `office` is where the QA office round starts looking (migration 106). Optional, unlike
 // department — a blank one costs nothing, because the monitor types what they actually found.
 // It rides in this template because the import reads it and the XLSX export writes it, and the
 // three have to agree or an administrator's round-trip silently drops the column.
-const EMP_COLS = ['staff_id', 'title', 'full_name', 'department', 'office', 'phone', 'email']
+const EMP_COLS = ['staff_id', 'title', 'full_name', 'department', 'office', 'phone', 'whatsapp', 'email']
 
 function downloadText(name: string, content: string) {
   const url = URL.createObjectURL(new Blob([content], { type: 'text/csv' }))
@@ -30,12 +32,13 @@ interface Employee {
   job_title: string
   email: string
   phone: string
+  whatsapp: string
   /** Where the QA office round starts looking. Optional — see EMP_COLS above. */
   office: string
   is_active: boolean
 }
 
-const BLANK = { staff_id: '', title: '', full_name: '', department: '', job_title: '', email: '', phone: '', office: '' }
+const BLANK = { staff_id: '', title: '', full_name: '', department: '', job_title: '', email: '', phone: '', whatsapp: '', office: '' }
 
 export default function AdminEmployees() {
   const { tenantId } = useParams<{ tenantId: string }>()
@@ -57,8 +60,10 @@ export default function AdminEmployees() {
   const list = (data ?? []).filter(e => !q ||
     [e.staff_id, e.full_name, e.department, e.job_title, e.office].some(v => (v || '').toLowerCase().includes(q)))
 
-  // Only support departments may hold staff, so that is the whole set the edit row offers.
-  const supportDepartments = org.departments.filter(d => d.kind === 'SUPPORT')
+  // Staff may sit in any of the tenant's departments — the SUPPORT offices (Finance, ICT,
+  // Library) and the academic ones alike, because an administrator in a faculty office is
+  // monitored exactly like one in ICT. So the edit row offers the whole tree.
+  const departments = org.departments
 
   async function handleCreate() {
     setSaving(true); setError(null)
@@ -71,7 +76,7 @@ export default function AdminEmployees() {
 
   function startEdit(e: Employee) {
     setEditId(e.employee_pk)
-    setEditForm({ staff_id: e.staff_id, title: e.title || '', full_name: e.full_name, department: e.department || '', job_title: e.job_title || '', email: e.email || '', phone: e.phone || '', office: e.office || '' })
+    setEditForm({ staff_id: e.staff_id, title: e.title || '', full_name: e.full_name, department: e.department || '', job_title: e.job_title || '', email: e.email || '', phone: e.phone || '', whatsapp: e.whatsapp || '', office: e.office || '' })
   }
   async function saveEdit() {
     if (!editId) return
@@ -128,23 +133,24 @@ export default function AdminEmployees() {
             <Input label="Staff / Badge ID *" value={form.staff_id} onChange={v => setForm(f => ({ ...f, staff_id: v }))} />
             <Input label="Title" value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="Mr / Ms / Dr" />
             <Input label="Full name *" value={form.full_name} onChange={v => setForm(f => ({ ...f, full_name: v }))} />
-            <Input label="Phone (contact)" value={form.phone} onChange={v => setForm(f => ({ ...f, phone: v }))} />
+            <Input label="WhatsApp number" value={form.whatsapp} onChange={v => setForm(f => ({ ...f, whatsapp: v }))} placeholder="+256 7XX XXX XXX" />
             <Input label="Email (contact)" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} />
+            <Input label="Phone (contact)" value={form.phone} onChange={v => setForm(f => ({ ...f, phone: v }))} />
             <Input label="Job title" value={form.job_title} onChange={v => setForm(f => ({ ...f, job_title: v }))} placeholder="Bursar / Systems Officer" />
             {/* Where the QA office round knocks first. Optional on purpose: the monitor can
                 always type what they found, and refusing an employee for want of a door label
                 would block the registry on a fact HR's own file has never carried. */}
             <Input label="Office" value={form.office} onChange={v => setForm(f => ({ ...f, office: v }))} placeholder="Block C, Room 14" />
-            {/* Department is REQUIRED, and only a SUPPORT department will do. Non-teaching staff
-                sit in Finance, ICT, Library and the like — departments that belong to no faculty
-                — so the academic list is not offered at all. Saved blank, an employee has no
-                office to chase on the no-show report, which is what it was for. */}
+            {/* Department is REQUIRED, and every department is offered — the SUPPORT offices and
+                the academic ones alike. Administrators are monitored in the offices they sit in,
+                so a dean's office under a faculty is filed exactly like one under ICT. Saved
+                blank, an employee has no office to chase on the no-show report. */}
             <OrgPicker
               schools={org.schools} departments={org.departments}
               department={form.department} school=""
               onChange={next => setForm(f => ({ ...f, department: next.department }))}
-              showSchool={false} requireDepartment kind="SUPPORT"
-              hint="Which support department this person works in."
+              showSchool={false} requireDepartment
+              hint="Which department this person works in."
             />
           </div>
           <button onClick={handleCreate} disabled={saving || !form.staff_id.trim() || !form.full_name.trim() || !form.department.trim()} style={{ ...btnPrimary, marginTop: 12 }}>
@@ -165,16 +171,19 @@ export default function AdminEmployees() {
                 <tr key={e.employee_pk}>
                   <td style={td}><input value={editForm.staff_id} onChange={ev => setEditForm(f => ({ ...f, staff_id: ev.target.value }))} style={inp} /></td>
                   <td style={td}><input value={editForm.full_name} onChange={ev => setEditForm(f => ({ ...f, full_name: ev.target.value }))} style={inp} /></td>
-                  {/* Editable here too — otherwise an employee filed against the wrong support
+                  {/* Editable here too — otherwise an employee filed against the wrong
                       department could only be fixed by deleting and re-adding them. */}
                   <td style={td}>
                     <select value={editForm.department} onChange={ev => setEditForm(f => ({ ...f, department: ev.target.value }))} style={inp}>
                       <option value="">— none —</option>
-                      {supportDepartments.map(d => <option key={d.department_id} value={d.name}>{d.name}</option>)}
+                      {departments.map(d => <option key={d.department_id} value={d.name}>{d.name}{d.school_id ? '' : ' (no school)'}</option>)}
                     </select>
                   </td>
                   <td style={td}><input value={editForm.office} onChange={ev => setEditForm(f => ({ ...f, office: ev.target.value }))} style={inp} placeholder="Block C, Room 14" /></td>
-                  <td style={td}><input value={editForm.phone} onChange={ev => setEditForm(f => ({ ...f, phone: ev.target.value }))} style={inp} placeholder="phone / email" /></td>
+                  <td style={td}>
+                    <input value={editForm.whatsapp} onChange={ev => setEditForm(f => ({ ...f, whatsapp: ev.target.value }))} style={{ ...inp, marginBottom: 4 }} placeholder="whatsapp" />
+                    <input value={editForm.phone} onChange={ev => setEditForm(f => ({ ...f, phone: ev.target.value }))} style={inp} placeholder="phone / email" />
+                  </td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>
                     <button onClick={saveEdit} disabled={!editForm.department.trim()} style={btnSmall}>Save</button>{' '}
                     <button onClick={() => setEditId(null)} style={btnSmall}>Cancel</button>
@@ -194,7 +203,7 @@ export default function AdminEmployees() {
                   {/* A plain dash, not the amber "not set" the department gets: a missing office
                       is not a defect — the monitor types the door they actually knocked at. */}
                   <td style={{ ...td, color: 'var(--muted)' }}>{e.office || '—'}</td>
-                  <td style={{ ...td, color: 'var(--muted)' }}>{e.phone || e.email || '—'}</td>
+                  <td style={{ ...td, color: 'var(--muted)' }}>{e.whatsapp || e.phone || e.email || '—'}</td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>
                     <button onClick={() => startEdit(e)} style={btnSmall}>Edit</button>{' '}
                     <button onClick={() => del(e)} style={{ ...btnSmall, color: '#b91c1c', borderColor: '#fecaca' }}>Delete</button>

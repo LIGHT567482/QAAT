@@ -189,16 +189,50 @@ func TestCaptureJSONForwardsFailures(t *testing.T) {
 // back the moment someone writes a new CellFormat without the encoder — so it is pinned by the
 // bytes, not by eye.
 
-// pdfTextBytes returns everything a PDF actually draws, with the content streams inflated.
+// pdfTextBytes returns everything a PDF actually draws, with the text streams inflated.
 //
 // WITHOUT THIS THE TEST BELOW WAS VACUOUS AND I PROVED IT: with the encoder deliberately disabled,
 // searching the raw file for the mojibake byte sequence still PASSED, because fpdf deflates page
 // content by default. A test for a byte sequence that is compressed out of sight asserts nothing.
+//
+// The institution logo is the exception, and it has to be excised BEFORE the inflation below. A
+// PNG's pixels are arbitrary binary — its decompressed raster can contain any sequence of bytes,
+// including the exact runes the mojibake test hunts for. Scanning an image for text corruption
+// would flag every report that carries the tenant's own logo; `drawn` is about what the FONT
+// draws, nothing else.
 func pdfTextBytes(t *testing.T, body []byte) []byte {
 	t.Helper()
-	var out bytes.Buffer
-	out.Write(body) // uncompressed objects (and anything not in a stream) count too
+	clean := make([]byte, 0, len(body))
 	rest := body
+	for {
+		i := bytes.Index(rest, []byte("stream"))
+		if i < 0 {
+			clean = append(clean, rest...)
+			break
+		}
+		endIdx := bytes.Index(rest[i:], []byte("endstream"))
+		if endIdx < 0 {
+			clean = append(clean, rest...)
+			break
+		}
+		endIdx += i + len("endstream")
+		// The image dict can nest its own "<<" (DecodeParms, SMask), so anchoring on the last
+		// "<<" is unreliable — look a bounded window back for the /Image marker instead.
+		windowStart := i - 512
+		if windowStart < 0 {
+			windowStart = 0
+		}
+		if i >= 8 && bytes.Contains(rest[windowStart:i], []byte("/Image")) {
+			rest = rest[endIdx:]
+			continue
+		}
+		clean = append(clean, rest[:endIdx]...)
+		rest = rest[endIdx:]
+	}
+
+	var out bytes.Buffer
+	out.Write(clean) // uncompressed objects (and anything not in a stream) count too
+	rest = clean
 	for {
 		i := bytes.Index(rest, []byte("stream"))
 		if i < 0 {

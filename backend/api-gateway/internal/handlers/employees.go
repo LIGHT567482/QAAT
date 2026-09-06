@@ -1,9 +1,14 @@
 package handlers
 
-// Employee registry — general (non-teaching) staff whose attendance comes from an
-// external check-in tablet. Deliberately SEPARATE from lecturers and students:
-// its own registration flow + its own bulk import/export template.
-// Columns: staff_id, title, full_name, department, job_title, email, phone, office.
+// Employee registry — general (non-teaching) staff AND administrators whose attendance is
+// monitored by the QA office round and the check-in tablet. Deliberately SEPARATE from lecturers
+// and students: its own registration flow + its own bulk import/export template.
+// Columns: staff_id, title, full_name, department, job_title, email, phone, whatsapp, office.
+//
+// WHO IS AN EMPLOYEE HERE. Anyone who is monitored as office staff, including the administrators
+// of the support offices — Finance, Admissions, Bursary, Library, ICT, Estates — and academic
+// departments. Registration mirrors the lecturer form (title, name, staff id, whatsapp, email,
+// department) because the monitor's office round is what records them.
 //
 // `office` is where the QA office round starts looking (migration 106). It is optional — unlike
 // department, which the no-show report groups by — and the monitor records what they actually
@@ -11,7 +16,6 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -20,30 +24,29 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// requireSupportDepartment refuses anything that is not one of the tenant's SUPPORT departments,
-// and returns the department's CANONICAL name.
+// requireDepartment refuses anything that is not one of the tenant's departments — SUPPORT or
+// ACADEMIC — and returns the department's CANONICAL name.
 //
 // The name is matched case- and whitespace-insensitively because it is stored as free text on the
-// employee row. Accepting an academic department here would file a bursar under a faculty they do
-// not work in; accepting a name that does not exist at all would file them under nothing, which
-// reads as a department with no staff rather than as a mistake.
+// employee row. Both kinds of departments are accepted: since administrators are monitored too,
+// an office in an academic faculty has exactly the same standing as one under ICT — filing a dean's
+// secretary under their department is the point, not a mistake. Rejecting a name that does not exist
+// at all is what keeps a typo from filing somebody under nothing, which reads as a department with
+// no staff rather than as a mistake.
 //
 // WHY THE CANONICAL NAME IS RETURNED, AND MUST BE STORED. `employees.department` is a NAME, and the
 // no-show report GROUPs BY it. Storing whatever casing the caller happened to type — "finance" from
 // a CSV, "Finance" from the form — would split one department into two rows that each show half the
 // staff, with nothing on screen to explain why. Matching loosely and storing exactly is what keeps
 // the group whole.
-func requireSupportDepartment(ctx context.Context, pool *pgxpool.Pool, tenantID, name string) (string, error) {
-	var canonical, kind string
+func requireDepartment(ctx context.Context, pool *pgxpool.Pool, tenantID, name string) (string, error) {
+	var canonical string
 	err := pool.QueryRow(ctx, `
-		SELECT name, kind::text FROM departments
+		SELECT name FROM departments
 		WHERE tenant_id = $1 AND btrim(lower(name)) = btrim(lower($2))
-		LIMIT 1`, tenantID, name).Scan(&canonical, &kind)
+		LIMIT 1`, tenantID, name).Scan(&canonical)
 	if err != nil {
-		return "", fmt.Errorf("no department named %q exists — add it under Schools & Departments → Support departments", name)
-	}
-	if kind != "SUPPORT" {
-		return "", errors.New("employees belong to a SUPPORT department (Finance, ICT, Library and the like), not an academic one")
+		return "", fmt.Errorf("no department named %q exists — add it under Schools & Departments first", name)
 	}
 	return canonical, nil
 }
@@ -55,7 +58,7 @@ func ListEmployees(adminPool *pgxpool.Pool) http.HandlerFunc {
 		rows, err := adminPool.Query(r.Context(), `
 			SELECT employee_pk::text, staff_id, COALESCE(title,''), full_name,
 			       COALESCE(department,''), COALESCE(job_title,''), COALESCE(email,''),
-			       COALESCE(phone,''), COALESCE(office,''), is_active
+			       COALESCE(phone,''), COALESCE(whatsapp,''), COALESCE(office,''), is_active
 			FROM employees WHERE tenant_id = $1 ORDER BY full_name`, tenantID)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, errBody("INTERNAL_ERROR", err.Error()))
@@ -71,6 +74,7 @@ func ListEmployees(adminPool *pgxpool.Pool) http.HandlerFunc {
 			JobTitle   string `json:"job_title"`
 			Email      string `json:"email"`
 			Phone      string `json:"phone"`
+			Whatsapp   string `json:"whatsapp"`
 			Office     string `json:"office"`
 			IsActive   bool   `json:"is_active"`
 		}
@@ -78,7 +82,7 @@ func ListEmployees(adminPool *pgxpool.Pool) http.HandlerFunc {
 		for rows.Next() {
 			var e employee
 			if err := rows.Scan(&e.EmployeePK, &e.StaffID, &e.Title, &e.FullName,
-				&e.Department, &e.JobTitle, &e.Email, &e.Phone, &e.Office, &e.IsActive); err != nil {
+				&e.Department, &e.JobTitle, &e.Email, &e.Phone, &e.Whatsapp, &e.Office, &e.IsActive); err != nil {
 				continue
 			}
 			list = append(list, e)
@@ -95,6 +99,7 @@ type employeeReq struct {
 	JobTitle   string `json:"job_title"`
 	Email      string `json:"email"`
 	Phone      string `json:"phone"`
+	Whatsapp   string `json:"whatsapp"`
 	// Where the QA office round starts looking. Optional — see the file header.
 	Office string `json:"office"`
 }
@@ -119,10 +124,10 @@ func CreateEmployee(adminPool *pgxpool.Pool) http.HandlerFunc {
 		// the no-show report, which exists to say whose office to chase.
 		if req.Department == "" {
 			writeJSON(w, http.StatusBadRequest, errBody("INVALID_REQUEST",
-				"a support department is required — Finance, ICT, Library and the like"))
+				"a department is required — Finance, ICT, an academic office or the like"))
 			return
 		}
-		canonical, derr := requireSupportDepartment(r.Context(), adminPool, tenantID, req.Department)
+		canonical, derr := requireDepartment(r.Context(), adminPool, tenantID, req.Department)
 		if derr != nil {
 			writeJSON(w, http.StatusBadRequest, errBody("INVALID_REQUEST", derr.Error()))
 			return
@@ -130,8 +135,8 @@ func CreateEmployee(adminPool *pgxpool.Pool) http.HandlerFunc {
 		req.Department = canonical
 		var pk string
 		err := adminPool.QueryRow(r.Context(), `
-			INSERT INTO employees (tenant_id, staff_id, title, full_name, department, job_title, email, phone, office)
-			VALUES ($1,$2,NULLIF($3,''),$4,NULLIF($5,''),NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,''))
+			INSERT INTO employees (tenant_id, staff_id, title, full_name, department, job_title, email, phone, whatsapp, office)
+			VALUES ($1,$2,NULLIF($3,''),$4,NULLIF($5,''),NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,''),NULLIF($10,''))
 			ON CONFLICT (tenant_id, staff_id) DO UPDATE SET
 			    title      = COALESCE(NULLIF(EXCLUDED.title,''), employees.title),
 			    full_name  = EXCLUDED.full_name,
@@ -139,10 +144,11 @@ func CreateEmployee(adminPool *pgxpool.Pool) http.HandlerFunc {
 			    job_title  = COALESCE(NULLIF(EXCLUDED.job_title,''), employees.job_title),
 			    email      = COALESCE(NULLIF(EXCLUDED.email,''), employees.email),
 			    phone      = COALESCE(NULLIF(EXCLUDED.phone,''), employees.phone),
+			    whatsapp   = COALESCE(NULLIF(EXCLUDED.whatsapp,''), employees.whatsapp),
 			    office     = COALESCE(NULLIF(EXCLUDED.office,''), employees.office)
 			RETURNING employee_pk::text`,
 			tenantID, req.StaffID, req.Title, req.FullName, req.Department, req.JobTitle, req.Email, req.Phone,
-			strings.TrimSpace(req.Office)).Scan(&pk)
+			req.Whatsapp, strings.TrimSpace(req.Office)).Scan(&pk)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, errBody("INTERNAL_ERROR", err.Error()))
 			return
@@ -165,7 +171,7 @@ func UpdateEmployee(adminPool *pgxpool.Pool) http.HandlerFunc {
 		req.Department = strings.TrimSpace(req.Department)
 		if req.Department == "" {
 			writeJSON(w, http.StatusBadRequest, errBody("INVALID_REQUEST",
-				"a support department is required — Finance, ICT, Library and the like"))
+				"a department is required — Finance, ICT, an academic office or the like"))
 			return
 		}
 		var tenantID string
@@ -174,7 +180,7 @@ func UpdateEmployee(adminPool *pgxpool.Pool) http.HandlerFunc {
 			writeJSON(w, http.StatusNotFound, errBody("NOT_FOUND", "employee not found"))
 			return
 		}
-		canonical, derr := requireSupportDepartment(r.Context(), adminPool, tenantID, req.Department)
+		canonical, derr := requireDepartment(r.Context(), adminPool, tenantID, req.Department)
 		if derr != nil {
 			writeJSON(w, http.StatusBadRequest, errBody("INVALID_REQUEST", derr.Error()))
 			return
@@ -189,10 +195,11 @@ func UpdateEmployee(adminPool *pgxpool.Pool) http.HandlerFunc {
 			    job_title  = NULLIF($6,''),
 			    email      = NULLIF($7,''),
 			    phone      = NULLIF($8,''),
-			    office     = NULLIF($9,'')
+			    whatsapp   = NULLIF($9,''),
+			    office     = NULLIF($10,'')
 			WHERE employee_pk = $1`,
 			id, strings.TrimSpace(req.StaffID), req.Title, strings.TrimSpace(req.FullName),
-			req.Department, req.JobTitle, req.Email, req.Phone, strings.TrimSpace(req.Office))
+			req.Department, req.JobTitle, req.Email, req.Phone, req.Whatsapp, strings.TrimSpace(req.Office))
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, errBody("INTERNAL_ERROR", err.Error()))
 			return
@@ -254,21 +261,22 @@ func ImportEmployees(adminPool *pgxpool.Pool) http.HandlerFunc {
 		// form enforces, and it is the path most staff actually arrive through.
 		if _, ok := idx["department"]; !ok {
 			writeJSON(w, http.StatusUnprocessableEntity, errBody("CSV_PARSE_ERROR",
-				"missing required column: department — every employee belongs to a support department"))
+				"missing required column: department — every employee belongs to a department"))
 			return
 		}
 
-		// The tenant's support departments, resolved once: a per-row query would be a round trip
+		// The tenant's departments, resolved once: a per-row query would be a round trip
 		// per line, and the set cannot change mid-import. Maps the loose form to the CANONICAL
 		// name so a file full of "finance" does not create a second group beside "Finance" — the
-		// no-show report groups by this string.
-		support := map[string]string{}
+		// no-show report groups by this string. Both SUPPORT and ACADEMIC departments are valid:
+		// an administrator in an academic office is monitored exactly like one under ICT.
+		depts := map[string]string{}
 		if drows, derr := adminPool.Query(r.Context(),
-			`SELECT btrim(lower(name)), name FROM departments WHERE tenant_id = $1 AND kind::text = 'SUPPORT'`, tenantID); derr == nil {
+			`SELECT btrim(lower(name)), name FROM departments WHERE tenant_id = $1`, tenantID); derr == nil {
 			for drows.Next() {
 				var lower, canonical string
 				if drows.Scan(&lower, &canonical) == nil {
-					support[lower] = canonical
+					depts[lower] = canonical
 				}
 			}
 			drows.Close()
@@ -290,18 +298,18 @@ func ImportEmployees(adminPool *pgxpool.Pool) http.HandlerFunc {
 				res.Errors = append(res.Errors, fmt.Sprintf("line %d: department required", ln))
 				continue
 			}
-			canonical, ok := support[strings.ToLower(dept)]
+			canonical, ok := depts[strings.ToLower(dept)]
 			if !ok {
 				res.Skipped++
 				res.Errors = append(res.Errors, fmt.Sprintf(
-					"line %d: %q is not one of this institution's support departments", ln, dept))
+					"line %d: %q is not one of this institution's departments", ln, dept))
 				continue
 			}
 			dept = canonical
 			var inserted bool
 			err := adminPool.QueryRow(r.Context(), `
-				INSERT INTO employees (tenant_id, staff_id, title, full_name, department, job_title, email, phone, office)
-				VALUES ($1,$2,NULLIF($3,''),$4,NULLIF($5,''),NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,''))
+				INSERT INTO employees (tenant_id, staff_id, title, full_name, department, job_title, email, phone, whatsapp, office)
+				VALUES ($1,$2,NULLIF($3,''),$4,NULLIF($5,''),NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,''),NULLIF($10,''))
 				ON CONFLICT (tenant_id, staff_id) DO UPDATE SET
 				    title      = COALESCE(NULLIF(EXCLUDED.title,''), employees.title),
 				    full_name  = EXCLUDED.full_name,
@@ -309,6 +317,7 @@ func ImportEmployees(adminPool *pgxpool.Pool) http.HandlerFunc {
 				    job_title  = COALESCE(NULLIF(EXCLUDED.job_title,''), employees.job_title),
 				    email      = COALESCE(NULLIF(EXCLUDED.email,''), employees.email),
 				    phone      = COALESCE(NULLIF(EXCLUDED.phone,''), employees.phone),
+				    whatsapp   = COALESCE(NULLIF(EXCLUDED.whatsapp,''), employees.whatsapp),
 				    -- COALESCE, not a plain assignment: a file exported before the office column
 				    -- existed, or one an administrator trimmed down, must not silently clear the
 				    -- offices the round is prefilling from.
@@ -317,6 +326,7 @@ func ImportEmployees(adminPool *pgxpool.Pool) http.HandlerFunc {
 				tenantID, staffID, cell(row, idx, "title"), fullName,
 				dept, cell(row, idx, "job_title"),
 				cell(row, idx, "email"), cell(row, idx, "phone"),
+				cell(row, idx, "whatsapp"),
 				cell(row, idx, "office")).Scan(&inserted)
 			if err != nil {
 				res.Skipped++
@@ -340,7 +350,7 @@ func ExportEmployeesXLSX(adminPool *pgxpool.Pool) http.HandlerFunc {
 		rows, err := adminPool.Query(r.Context(), `
 			SELECT staff_id, COALESCE(title,''), full_name, COALESCE(department,''),
 			       COALESCE(job_title,''), COALESCE(email,''), COALESCE(phone,''),
-			       COALESCE(office,'')
+			       COALESCE(whatsapp,''), COALESCE(office,'')
 			FROM employees WHERE tenant_id = $1 ORDER BY full_name`, tenantID)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, errBody("INTERNAL_ERROR", err.Error()))
@@ -349,12 +359,13 @@ func ExportEmployeesXLSX(adminPool *pgxpool.Pool) http.HandlerFunc {
 		defer rows.Close()
 		// office rides along because this export IS the import template: an administrator
 		// downloads it, edits it and uploads it again, so a column the export drops is a column
-		// the next import has no value for.
-		out := [][]string{{"staff_id", "title", "full_name", "department", "job_title", "email", "phone", "office"}}
+		// the next import has no value for. whatsapp gets the same treatment — it was added to
+		// the registry and to the import in the same breath, and the two must stay in step.
+		out := [][]string{{"staff_id", "title", "full_name", "department", "job_title", "email", "phone", "whatsapp", "office"}}
 		for rows.Next() {
-			var sid, title, name, dept, job, email, phone, office string
-			rows.Scan(&sid, &title, &name, &dept, &job, &email, &phone, &office) //nolint:errcheck
-			out = append(out, []string{sid, title, name, dept, job, email, phone, office})
+			var sid, title, name, dept, job, email, phone, whatsapp, office string
+			rows.Scan(&sid, &title, &name, &dept, &job, &email, &phone, &whatsapp, &office) //nolint:errcheck
+			out = append(out, []string{sid, title, name, dept, job, email, phone, whatsapp, office})
 		}
 		xlsx, err := buildXLSX(out)
 		if err != nil {

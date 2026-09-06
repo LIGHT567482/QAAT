@@ -33,8 +33,10 @@ import (
 	"github.com/qaat/api-gateway/internal/middleware"
 )
 
-// officeAbsenceTarget is who an empty-office notice goes to, and what it is about.
+// officeAbsenceTarget is who an empty-office notice goes to, and what it is about. Reused for
+// the present-verdict confirmation — the same person, the same visit, a different message.
 type officeAbsenceTarget struct {
+	VisitID    string
 	StaffID    string
 	Name       string
 	Email      string
@@ -348,13 +350,20 @@ func OfficeSync(pool *pgxpool.Pool) http.HandlerFunc {
 			}
 			written++
 
-			// The person is told only when the office was empty — see employee_patrol_notify.go
-			// for what that message may and may not say. Called on every ABSENT row rather than
-			// only on inserts: a correction that flips ELSEWHERE→ABSENT must still reach them,
-			// and AlreadySent is the single source of truth for "have we told them about today".
+			// The person is told something about EVERY visit that is synced — that is the point of
+			// registering administrators and employees as monitorable office staff.
+			//
+			// • ABSENT keeps the empty-office warning, one per person per day: an accusation is
+			//   deduped by the day (see employee_patrol_notify.go), because telling somebody they
+			//   were not there, three times, in one day is harassment in three installments.
+			// • AT_OFFICE and ELSEWHERE_ON_DUTY get a confirmation, keyed to the SPECIFIC visit
+			//   rather than the day — "they must receive an email each time their attendance is
+			//   taken" means exactly that: a morning round and an afternoon round are two
+			//   attendances and two emails, while a retried sync of the same row sends nothing.
 			// Best-effort throughout — a failure here never fails the sync.
 			if v.Status == "ABSENT" {
 				notifyOfficeAbsence(r, pool, tenantID, tenantName, officeAbsenceTarget{
+					VisitID:    v.VisitID,
 					StaffID:    v.StaffID,
 					Name:       name,
 					Email:      email,
@@ -364,6 +373,18 @@ func OfficeSync(pool *pgxpool.Pool) http.HandlerFunc {
 					VisitDate:  visitDate,
 					VisitTime:  visitTime,
 				})
+			} else {
+				notifyAttendanceTaken(r, pool, tenantID, tenantName, officeAbsenceTarget{
+					VisitID:    v.VisitID,
+					StaffID:    v.StaffID,
+					Name:       name,
+					Email:      email,
+					Phone:      phone,
+					Department: dept,
+					Office:     strings.TrimSpace(v.Office),
+					VisitDate:  visitDate,
+					VisitTime:  visitTime,
+				}, v.Status)
 			}
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{

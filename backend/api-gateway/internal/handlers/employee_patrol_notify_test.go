@@ -108,3 +108,66 @@ func TestValidOfficeStatusMatchesTheCheckConstraint(t *testing.T) {
 		}
 	}
 }
+
+// ─── Attendance-recorded confirmation (present verdicts) ───────────────────────
+
+// The confirmation is a message about a fact, not an anonymous knock: it shares the absence
+// warning's two hard rules — name the door and the moment, never name the observer — and adds
+// that it must say WHAT was recorded, because that is the whole point of a confirmation.
+func TestOfficeAttendanceMessageNamesNoMonitor(t *testing.T) {
+	for _, status := range []string{"AT_OFFICE", "ELSEWHERE_ON_DUTY"} {
+		subject, body := attendanceTakenMessage("Block C, Room 14", "2026-09-03", "10:14", status)
+		text := strings.ToLower(subject + "\n" + body)
+		for _, forbidden := range []string{
+			"jane doe", "monitor:", "observed by", "recorded by", "patroller", "reported by",
+		} {
+			if strings.Contains(text, forbidden) {
+				t.Errorf("%s: message names the observer (%q):\n%s\n%s", status, forbidden, subject, body)
+			}
+		}
+	}
+}
+
+func TestOfficeAttendanceMessageSaysWhereWhenAndVerdict(t *testing.T) {
+	for _, c := range []struct {
+		status string
+		word   string
+	}{
+		{"AT_OFFICE", "at your desk"},
+		{"ELSEWHERE_ON_DUTY", "on duty elsewhere"},
+	} {
+		subject, body := attendanceTakenMessage("Block C, Room 14", "2026-09-03", "10:14", c.status)
+		text := strings.ToLower(subject + "\n" + body)
+
+		if !strings.Contains(body, "Block C, Room 14") {
+			t.Errorf("%s: does not say which office:\n%s", c.status, body)
+		}
+		for _, want := range []string{"2026", "10:14"} {
+			if !strings.Contains(subject+body, want) {
+				t.Errorf("%s: does not say when (missing %q):\n%s\n%s", c.status, want, subject, body)
+			}
+		}
+		if !strings.Contains(text, c.word) {
+			t.Errorf("%s: does not say what was recorded (%q):\n%s\n%s", c.status, c.word, subject, body)
+		}
+		// A confirmation must never drift into the absence accusation — "found it empty" is the
+		// other message's line, and the person who sees it has already been told their office
+		// was empty today. Repeating it under "attendance recorded" would be gaslighting.
+		if strings.Contains(text, "empty") {
+			t.Errorf("%s: confirmation echoes the absence accusation:\n%s\n%s", c.status, subject, body)
+		}
+		if !strings.Contains(text, "read together") {
+			t.Errorf("%s: dropped the 'filed beside the terminal record' clause:\n%s", c.status, body)
+		}
+	}
+}
+
+func TestOfficeAttendanceMessageWithoutAKnownOffice(t *testing.T) {
+	_, body := attendanceTakenMessage("", "2026-09-03", "10:14", "AT_OFFICE")
+	if !strings.Contains(body, "your office") {
+		t.Errorf("message with no office does not degrade to a readable sentence:\n%s", body)
+	}
+	if strings.Contains(body, "called at  on") {
+		t.Errorf("message with no office leaves a hole in the sentence:\n%s", body)
+	}
+}
