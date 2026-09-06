@@ -1,0 +1,8 @@
+node_modules
+# dist is NOT ignored: the Dockerfile copies it (the app is built on the host).
+.env
+.env.*
+!*.env.example
+*.md
+vercel.json
+

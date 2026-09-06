@@ -1,0 +1,142 @@
+package middleware
+
+import (
+	"encoding/json"
+	"net/http"
+	"sync"
+	"time"
+
+	"golang.org/x/time/rate"
+)
+
+// CoordinatorRateLimit enforces 50 req/s per coordinator (burst 100) as
+// specified in technicaldoc.md §5.3.
+// Non-coordinator roles use a global per-IP limiter (200 req/s, burst 400).
+func CoordinatorRateLimit() func(http.Handler) http.Handler {
+	var (
+		mu           sync.Mutex
+		coordinators = make(map[string]*rate.Limiter)
+		global       = make(map[string]*rate.Limiter)
+	)
+
+	getCoordinatorLimiter := func(id string) *rate.Limiter {
+		mu.Lock()
+		defer mu.Unlock()
+		l, ok := coordinators[id]
+		if !ok {
+			l = rate.NewLimiter(50, 100)
+			coordinators[id] = l
+		}
+		return l
+	}
+
+	getGlobalLimiter := func(ip string) *rate.Limiter {
+		mu.Lock()
+		defer mu.Unlock()
+		l, ok := global[ip]
+		if !ok {
+			l = rate.NewLimiter(200, 400)
+			global[ip] = l
+		}
+		return l
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var limiter *rate.Limiter
+			if GetRole(r.Context()) == RoleCoordinator {
+				limiter = getCoordinatorLimiter(GetUserID(r.Context()))
+			} else {
+				// ClientIP, not RemoteAddr — see the note in PublicIPRateLimit.
+				limiter = getGlobalLimiter(ClientIP(r))
+			}
+
+			if !limiter.Allow() {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+					"error":   "RATE_LIMIT_EXCEEDED",
+					"message": "too many requests",
+				})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// PublicIPRateLimit throttles an unauthenticated public endpoint per client IP.
+// Used for the student check-in route, which has no JWT to key on. Check-in is a
+// human action, so a few requests/second per IP is generous; the cap exists only
+// to blunt scripted abuse / room-code brute force (the signed-QR gate already
+// restricts attempts to holders of a real, enrolled QR).
+//
+// KEYED ON ClientIP, NOT RemoteAddr. Both limiters in this file used to bucket on
+// r.RemoteAddr, which is "host:port" — a fresh port on every TCP connection, so a
+// caller that did not reuse its connection got a fresh, full bucket every request
+// and neither limiter limited anything (a brute-force loop ran unthrottled, and
+// the map grew one entry per connection). Behind Caddy, RemoteAddr is also always
+// the proxy's own address, so what survived of the limit was shared by the whole
+// internet rather than applied per caller. ClientIP reads Caddy's X-Forwarded-For,
+// which the LAN-proximity gate already trusts, and Caddy is the only ingress.
+func PublicIPRateLimit(perSec rate.Limit, burst int) func(http.Handler) http.Handler {
+	type entry struct {
+		lim  *rate.Limiter
+		seen time.Time
+	}
+	var (
+		mu   sync.Mutex
+		ips  = make(map[string]*entry)
+		next time.Time // when to sweep again
+	)
+	// Evict idle buckets. The map had no eviction, so every IP that ever touched a public
+	// endpoint kept a limiter for the life of the process — an unbounded map fed by the open
+	// internet, which is a slow leak on a long-running gateway. An IP idle for the full window
+	// has refilled its bucket to burst anyway, so forgetting it grants nothing.
+	const idleFor = 10 * time.Minute
+	sweep := func(now time.Time) {
+		if now.Before(next) {
+			return
+		}
+		next = now.Add(time.Minute)
+		for ip, e := range ips {
+			if now.Sub(e.seen) > idleFor {
+				delete(ips, ip)
+			}
+		}
+	}
+	get := func(ip string) *rate.Limiter {
+		mu.Lock()
+		defer mu.Unlock()
+		now := time.Now()
+		sweep(now)
+		e, ok := ips[ip]
+		if !ok {
+			e = &entry{lim: rate.NewLimiter(perSec, burst)}
+			ips[ip] = e
+		}
+		e.seen = now
+		return e.lim
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !get(ClientIP(r)).Allow() {
+				// Retry-After lets a client back off intelligently instead of hammering or
+				// giving up. This matters most on sign-in: a whole cohort opening the app in a
+				// lecture hall arrives from ONE public IP (the campus NAT), so they share a
+				// bucket and the ones at the back are refused through no fault of their own.
+				// Without this header the app had nothing to distinguish "wrong password" from
+				// "wait two seconds", and showed the student a credentials error for neither.
+				w.Header().Set("Retry-After", "2")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+					"error":   "RATE_LIMIT_EXCEEDED",
+					"message": "Too many people are signing in at once. Wait a moment and try again.",
+				})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

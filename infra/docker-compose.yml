@@ -1,0 +1,257 @@
+services:
+
+  # ─── Data layer ──────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-qaat}
+      POSTGRES_USER: ${DB_USER:-qaat}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD unset — pass --env-file .env (local) or --env-file infra/field.env (field)}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../db/migrations:/docker-entrypoint-initdb.d:ro
+      - ../db/seeds:/seeds:ro
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-qaat} -d ${DB_NAME:-qaat}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD unset — pass --env-file .env (local) or --env-file infra/field.env (field)} --appendonly yes
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD unset — pass --env-file .env (local) or --env-file infra/field.env (field)}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─── Backend services ─────────────────────────────────────────────────────
+
+  auth-service:
+    build:
+      context: ../backend/auth-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DB_URL: postgres://${DB_USER:-qaat}:${DB_PASSWORD:?DB_PASSWORD unset — pass --env-file .env (local) or --env-file infra/field.env (field)}@postgres:5432/${DB_NAME:-qaat}?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD unset — pass --env-file .env (local) or --env-file infra/field.env (field)}@redis:6379/0
+      RSA_PRIVATE_KEY_PATH: /run/secrets/auth_private.pem
+      RSA_PUBLIC_KEY_PATH: /run/secrets/auth_public.pem
+      JWT_ISSUER: ${AUTH_JWT_ISSUER:-qaat-auth}
+      JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:-qaat-api}
+      JWT_TTL_SECONDS: ${AUTH_JWT_TTL_SECONDS:-86400}
+      # Required since update.md H2/§3: master key for encrypting the coordinator
+      # device-binding key at rest. Without it, coordinator login fails.
+      KEY_ENCRYPTION_KEY: ${KEY_ENCRYPTION_KEY:?KEY_ENCRYPTION_KEY unset — pass --env-file .env (local) or --env-file infra/field.env (field)}
+      # Standalone deployment: bypass TOTP so VC / DQA Director can sign in with
+      # just a password (set DISABLE_MFA=false + enrol TOTP to harden later).
+      DISABLE_MFA: ${DISABLE_MFA:-true}
+      # Shared secret the API gateway presents to mint a STUDENT token after it has
+      # verified a scanned QR (passwordless portal login).
+      INTERNAL_SVC_KEY: ${INTERNAL_SVC_KEY:?INTERNAL_SVC_KEY unset — pass --env-file .env (local) or --env-file infra/field.env (field)}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    volumes:
+      - ../keys/auth_private.pem:/run/secrets/auth_private.pem:ro
+      - ../keys/auth_public.pem:/run/secrets/auth_public.pem:ro
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  api-gateway:
+    build:
+      context: ../backend/api-gateway
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: ${API_PORT:-8443}
+      AUTH_SERVICE_URL: http://auth-service:8081
+      RSA_PUBLIC_KEY_PATH: /run/secrets/auth_public.pem
+      JWT_ISSUER: ${AUTH_JWT_ISSUER:-qaat-auth}
+      JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:-qaat-api}
+      # Tenant data plane connects as the NON-superuser qaat_app role so RLS is
+      # enforced (update.md C1 / migration 009). ADMIN_DB_URL is the privileged
+      # connection used ONLY by the ADMIN-gated, cross-tenant platform handlers.
+      DB_URL: postgres://${APP_DB_USER:-qaat_app}:${APP_DB_PASSWORD:?APP_DB_PASSWORD unset — pass --env-file .env (local) or --env-file infra/field.env (field)}@postgres:5432/${DB_NAME:-qaat}?sslmode=disable
+      ADMIN_DB_URL: postgres://${DB_USER:-qaat}:${DB_PASSWORD:?DB_PASSWORD unset — pass --env-file .env (local) or --env-file infra/field.env (field)}@postgres:5432/${DB_NAME:-qaat}?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD unset — pass --env-file .env (local) or --env-file infra/field.env (field)}@redis:6379/0
+      CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:3001,http://localhost:3002,http://localhost:3003}
+      # Dedicated student/captive-portal origin, kept independent from the
+      # coordinator/admin console. Used to build the lecturer-gate captive URL.
+      STUDENT_CHECKIN_BASE_URL: ${STUDENT_CHECKIN_BASE_URL:-}
+      # Must match auth-service: lets the gateway mint a STUDENT token after it has
+      # verified a scanned QR (passwordless portal login).
+      INTERNAL_SVC_KEY: ${INTERNAL_SVC_KEY:?INTERNAL_SVC_KEY unset — pass --env-file .env (local) or --env-file infra/field.env (field)}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      # Civil time. internal/clock reads INSTITUTION_TZ; TZ pins the container (and
+      # therefore the Postgres session timezone) to match, so SQL's CURRENT_DATE and
+      # Go's clock.Today() cannot disagree about what day it is.
+      TZ: ${TZ:-Africa/Kampala}
+      INSTITUTION_TZ: ${INSTITUTION_TZ:-Africa/Kampala}
+      # Where the scheduled jobs send employee alerts (email + WhatsApp). The default
+      # in code is the same value; declared here so it is visible and overridable.
+      NOTIFICATION_URL: ${NOTIFICATION_URL:-http://notification-service:3004}
+      # ── U-PANEL INTEGRATION: DEFERRED TO V2 ──────────────────────────────
+      # v1 runs self-contained: nothing in the gateway calls U-Panel, so the client
+      # never reads these. Commented out rather than deleted so restoring the
+      # integration is uncommenting here and in the router.
+      # UPANEL_API_URL: ${UPANEL_API_URL:-https://kiu.orion13.us}
+      # UPANEL_API_TOKEN: ${UPANEL_API_TOKEN:-}
+      # Guards /internal/cron/*. Blank means that endpoint 401s everything, which is
+      # fine — the gateway runs its own in-process scheduler and does not need it.
+      CRON_SECRET: ${CRON_SECRET:-}
+      # WebAuthn relying-party identity for lecturer biometric passkeys. RP_ID
+      # MUST be a hostname (browsers reject bare IPs); RP_ORIGINS is the https origin.
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-QAAT}
+      WEBAUTHN_RP_ORIGINS: ${WEBAUTHN_RP_ORIGINS:-https://localhost:8443}
+    volumes:
+      - ../keys/auth_public.pem:/run/secrets/auth_public.pem:ro
+    expose: ["8443"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+
+  sync-receiver:
+    build:
+      context: ../backend/sync-receiver
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "8083"
+      DB_URL: postgres://${DB_USER:-qaat}:${DB_PASSWORD:?DB_PASSWORD unset — pass --env-file .env (local) or --env-file infra/field.env (field)}@postgres:5432/${DB_NAME:-qaat}?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD unset — pass --env-file .env (local) or --env-file infra/field.env (field)}@redis:6379/0
+      RSA_PUBLIC_KEY_PATH: /run/secrets/auth_public.pem
+      JWT_ISSUER: ${AUTH_JWT_ISSUER:-qaat-auth}
+      JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:-qaat-api}
+      KEY_ENCRYPTION_KEY: ${KEY_ENCRYPTION_KEY:?KEY_ENCRYPTION_KEY unset — pass --env-file .env (local) or --env-file infra/field.env (field)}
+      SYNC_SIGN_KEY: ${SYNC_SIGN_KEY:?SYNC_SIGN_KEY unset — pass --env-file .env (local) or --env-file infra/field.env (field)}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../keys/auth_public.pem:/run/secrets/auth_public.pem:ro
+    expose: ["8083"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Session lifecycle helpers (warden link, clearance token).
+  session-manager:
+    build:
+      context: ../backend/session-manager
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "8082"
+      DB_URL: postgres://${DB_USER:-qaat}:${DB_PASSWORD:?DB_PASSWORD unset — pass --env-file .env (local) or --env-file infra/field.env (field)}@postgres:5432/${DB_NAME:-qaat}?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD unset — pass --env-file .env (local) or --env-file infra/field.env (field)}@redis:6379/0
+      RSA_PUBLIC_KEY_PATH: /run/secrets/auth_public.pem
+      JWT_ISSUER: ${AUTH_JWT_ISSUER:-qaat-auth}
+      JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:-qaat-api}
+      WARDEN_BASE_URL: ${WARDEN_BASE_URL:-https://localhost:8443}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../keys/auth_public.pem:/run/secrets/auth_public.pem:ro
+    expose: ["8082"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  notification-service:
+    build:
+      context: ../backend/notification-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "3004"
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
+      PLATFORM_DOMAIN: ${PLATFORM_DOMAIN:-qaat.platform}
+      VAPID_PUBLIC_KEY:  ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      # WhatsApp for the employee attendance alerts. All blank by default, which
+      # makes sendWhatsApp log instead of send — the flow still works end to end,
+      # and email is unaffected. See .env for what each provider needs.
+      WHATSAPP_PROVIDER:    ${WHATSAPP_PROVIDER:-}
+      TWILIO_ACCOUNT_SID:   ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN:    ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_WHATSAPP_FROM: ${TWILIO_WHATSAPP_FROM:-}
+      META_PHONE_NUMBER_ID: ${META_PHONE_NUMBER_ID:-}
+      META_ACCESS_TOKEN:    ${META_ACCESS_TOKEN:-}
+    ports:
+      - "3004:3004"
+    depends_on:
+      - mailhog
+
+  # ─── Frontends (built static, served by nginx) ────────────────────────────
+  # VITE_API_URL is baked at build time → must be the gateway URL reachable from
+  # the BROWSER (a LAN IP, not localhost, so phones can scan QR codes).
+
+  # Frontends are fronted by Caddy (HTTPS) — no host port mapping; Caddy reaches
+  # them by container name on the compose network.
+  # super-admin app removed — single-institution (KIU) build has no platform owner.
+
+  admin-dashboards:
+    build: { context: ../frontend/admin-dashboards, dockerfile: Dockerfile }
+    restart: unless-stopped
+    expose: ["3001"]
+
+  student-portal:
+    build: { context: ../frontend/student-portal, dockerfile: Dockerfile }
+    restart: unless-stopped
+    expose: ["3003"]
+
+  # ─── HTTPS reverse proxy (internal TLS) ────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+      - "3001:3001"
+      - "3003:3003"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      - api-gateway
+      - admin-dashboards
+      - student-portal
+
+  # ─── Dev tooling ─────────────────────────────────────────────────────────
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI
+
+volumes:
+  pgdata:
+  redisdata:
+  caddydata:
+  caddyconfig:

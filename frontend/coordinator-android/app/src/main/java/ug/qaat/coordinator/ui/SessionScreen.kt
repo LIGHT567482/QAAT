@@ -1,0 +1,239 @@
+package ug.qaat.coordinator.ui
+
+import android.content.Intent
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
+import ug.qaat.coordinator.db.PresentDisplayEntity
+import ug.qaat.coordinator.di.Graph
+import ug.qaat.coordinator.net.DashboardClient
+
+/**
+ * The in-room screen: rotating room code (projected), live PRESENT/REJECTED feed,
+ * the manual-rotation reminder, broadcast announcements, start/end. Spec Part 4 + Feature 1.
+ */
+@Composable
+fun SessionScreen(onOpenSession: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val sessionId = AppState.currentSessionId
+
+    // Idle (no live session): the entry into taking attendance + emergency standby.
+    if (sessionId == null) { AttendanceIdle(onOpenSession); return }
+
+    val roster by (if (sessionId != null) Graph.repo.liveRoster(sessionId) else flowOf(emptyList()))
+        .collectAsStateWithLifecycle(emptyList())
+    val present by (if (sessionId != null) Graph.repo.presentCount(sessionId) else flowOf(0))
+        .collectAsStateWithLifecycle(0)
+
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        // Session identity = the COHORT (its natural name). Android assigns the actual Wi-Fi
+        // name itself and an app can't rename it, so students JOIN by scanning the Wi-Fi QR
+        // below rather than by reading a name; this header just tells everyone whose room it is.
+        AppState.cohortLabel?.takeIf { it.isNotBlank() }?.let {
+            Text(it, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+        }
+        // WHAT STUDENTS NEED IS NO LONGER A NETWORK, IT IS A NUMBER.
+        //
+        // This panel used to carry a Wi-Fi name and password, because reaching the coordinator's
+        // radio WAS the proof of presence. Presence is now the geofence, so the only thing that has
+        // to cross the room is the code — which is why it is set large and monospaced: it is read
+        // aloud to the back row and copied onto phones.
+        Surface(color = MaterialTheme.colorScheme.inverseSurface, shape = MaterialTheme.shapes.medium) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("STUDENTS: OPEN THE QAAT APP, TAP ATTEND, AND TYPE THIS CODE",
+                    color = MaterialTheme.colorScheme.inverseOnSurface, fontSize = 12.sp, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(8.dp))
+                val code = AppState.activeSessionCode
+                Text(
+                    code?.toCharArray()?.joinToString("  ") ?: "opening…",
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                    fontSize = 34.sp, fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center,
+                )
+            }
+        }
+
+        // (The manual "Gateway IP" rescue field was removed — student/lecturer phones now auto-discover
+        // the hub via the DHCP gateway + NSD, so it's no longer needed.)
+        Spacer(Modifier.height(8.dp))
+
+        // Shared-lecture code: if THIS unit's lecturer is teaching several cohorts at this hour and
+        // hasn't STARTed here in person (they are in another coordinator's room), the coordinator
+        // enters the 3-digit code the lecturer read out to unlock check-in here.
+        //
+        // This whole block is absent from an ordinary lecture, which is nearly all of them: the
+        // manifest only carries a combined-class key for a slot that genuinely shares its room and
+        // hour with another cohort, so no key means no code means nothing on screen.
+        if (AppState.currentLecturerHasCode && !AppState.lecturerStartedHere) {
+            Spacer(Modifier.height(8.dp))
+            var code by remember { mutableStateOf("") }
+            var codeErr by remember { mutableStateOf<String?>(null) }
+            Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
+                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                    Text("This lecture is shared with another cohort. If the lecturer started in " +
+                        "someone else's room, enter the 3 digits they read out to open your register here.",
+                        style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            code, { v -> if (v.length <= 3 && v.all { it.isDigit() }) { code = v; codeErr = null } },
+                            Modifier.weight(1f), singleLine = true, label = { Text("The lecturer's 3 digits") },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        val localCtx = LocalContext.current
+                        Button(enabled = code.length == 3, onClick = {
+                            scope.launch {
+                                val ok = runCatching {
+                                    ug.qaat.coordinator.net.OpenRegisterClient(localCtx).open() != null
+                                }.getOrDefault(false)
+                                codeErr = if (ok) null
+                                    else "That isn't today's code for this lecture. Ask the lecturer to read it again."
+                            }
+                        }) { Text("Start") }
+                    }
+                    codeErr?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall) }
+                }
+            }
+        }
+        // Revealed only after the lecturer STARTs in person here: the code they read out to the
+        // OTHER coordinators sharing this lecture so those cohorts can start too. The lecturer sees
+        // the same three digits on their own phone — this copy is for the case where they have
+        // already put it away, or their handset died after gating in.
+        AppState.currentSessionCode?.let { c ->
+            Spacer(Modifier.height(8.dp))
+            Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = MaterialTheme.shapes.small) {
+                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                    Text("Code for the other cohorts in this lecture:", style = MaterialTheme.typography.labelSmall)
+                    Text(c, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.ExtraBold, fontFamily = FontFamily.Monospace)
+                    Text("Read this out — the other coordinator enters it to open their register. It works only today.",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                }
+            }
+        }
+        if (AppState.currentLecturerHasCode && AppState.lecturerStartedHere && AppState.currentSessionCode == null) {
+            Spacer(Modifier.height(8.dp))
+            Text("✓ Lecturer marked present via their shared-lecture code — students can check in.",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        }
+
+        // No QR codes at all — the system is hotspot-driven. Students tap ATTEND and lecturers tap
+        // START/END inside the app; both talk to this hub over the LAN (the app pulls the live gate
+        // code itself from GET /status, so the lecturer never scans anything).
+        Spacer(Modifier.height(12.dp))
+        // The live roster is now behind a button that opens a dedicated page (keeps this screen tidy).
+        var showRoster by remember { mutableStateOf(false) }
+        Button(onClick = { showRoster = true }, Modifier.fillMaxWidth()) {
+            Text("View live roster — $present present", fontWeight = FontWeight.Bold)
+        }
+        if (showRoster) LiveRosterDialog(roster, present) { showRoster = false }
+        Spacer(Modifier.weight(1f))
+
+        // Announce
+        var msg by remember { mutableStateOf("") }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(msg, { msg = it }, Modifier.weight(1f), placeholder = { Text("Announcement…") }, singleLine = true)
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = {
+                val m = msg.trim(); if (m.isNotEmpty()) {
+                    // Was a LAN broadcast from the in-room server. Goes through the same
+                    // notification path every other message in the app uses.
+                    scope.launch {
+                        runCatching { ug.qaat.coordinator.net.NotificationClient().send("STUDENTS", null, "Message from your coordinator", m) }
+                    }
+                    msg = ""
+                }
+            }) { Text("Send") }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = {
+                // Nothing to shut down locally any more: the register lives on the server. This
+                // clears the code so the screen cannot keep showing a number for a finished class.
+                AppState.activeSessionCode = null
+                AppState.activeSessionId = null
+            },
+            Modifier.fillMaxWidth(),
+        ) { Text("End session + sync") }
+    }
+}
+
+/** The live roster on its own page (opened from the "View live roster" button): who is present now,
+ *  newest first, updating live as students check in. */
+@Composable
+private fun LiveRosterDialog(roster: List<PresentDisplayEntity>, present: Int, onClose: () -> Unit) {
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Live roster — $present present", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onClose) { Text("Close") }
+                }
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Text("Reg no", Modifier.weight(1.1f), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Student name", Modifier.weight(1.5f), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Status", Modifier.weight(0.5f), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                }
+                HorizontalDivider()
+                if (roster.isEmpty()) Text("No one has checked in yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp))
+                else LazyColumn(Modifier.weight(1f)) {
+                    items(roster) { r: PresentDisplayEntity ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(r.studentId, Modifier.weight(1.1f), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                            Text(r.fullName.ifBlank { "—" }, Modifier.weight(1.5f), fontSize = 13.sp)
+                            Box(Modifier.weight(0.5f), contentAlignment = Alignment.Center) {
+                                val ok = r.status == "PRESENT"
+                                Text(if (ok) "✓" else "✗", color = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Shown on the Attendance tab when no session is running: the "Take attendance" entry
+ *  plus the Emergency Standby feature (moved here from Home). */
+@Composable
+private fun AttendanceIdle(onOpenSession: () -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        Text("Attendance", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+        AppState.sessionNotice?.let { note ->
+            Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(note, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { AppState.sessionNotice = null }) { Text("Dismiss") }
+                }
+            }
+        }
+        Text("Start a session so students can check in — this works even with no internet once today's data is downloaded.",
+            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = onOpenSession, Modifier.fillMaxWidth()) { Text("Take attendance", fontWeight = FontWeight.Bold) }
+        Spacer(Modifier.height(20.dp))
+        StandbyCard(remember { DashboardClient() }, AppState.token)
+    }
+}
+

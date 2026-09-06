@@ -1,0 +1,188 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useParams } from 'react-router-dom'
+import { api } from '../../lib/api'
+import ExportButtons from '../../components/ExportButtons'
+import RecordTabs from '../../components/RecordTabs'
+import MonitorEmployeeAttendance from '../shared/MonitorEmployeeAttendance'
+// U-PANEL INTEGRATION: DEFERRED TO V2 — restore with the tab below.
+// import UPanelRecords from './UPanelRecords'
+
+// Employee attendance from the check-in tablet. Admin uploads the tablet's export
+// (staff_id, title, full_name, datetime, in/out, comment) and reads the report:
+// one row per employee with an auto-generated Comment (date, times, days worked).
+const PUNCH_COLS = ['staff_id', 'title', 'full_name', 'datetime', 'in/out', 'comment']
+
+function downloadText(name: string, content: string, type = 'text/csv') {
+  const url = URL.createObjectURL(new Blob([content], { type })); const a = document.createElement('a')
+  a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url)
+}
+
+interface Row {
+  staff_id: string; title: string; full_name: string; contact: string; comment: string
+}
+interface Report { from: string; to: string; rows: Row[] }
+
+export default function AdminEmployeeAttendance() {
+  return (
+    <RecordTabs title="Employee Attendance" tabs={[
+      {
+        id: 'tablet',
+        label: 'Tablet / punches',
+        hint: 'Biometric terminal sheet and raw punch import.',
+        render: () => <TabletEmployeeRecord />,
+      },
+      // ADMIN is in employeeReaders on the server, so leaving this off would hand the
+      // administrator an endpoint with no screen to reach it from.
+      {
+        id: 'office-round',
+        label: 'QA office round',
+        hint: 'What a QA monitor found on walking to the office. An independent human record beside the machine ones — never merged with them.',
+        render: () => <MonitorEmployeeAttendance />,
+      },
+      // U-PANEL INTEGRATION: DEFERRED TO V2 — this tab read /api/v1/dashboard/upanel/attendance,
+      // which is commented out in the gateway. The tablet/punch record beside it is QAAT's own
+      // and is untouched. Restore by uncommenting here and in the router.
+      // {
+      //   id: 'upanel',
+      //   label: 'U-Panel campus',
+      //   hint: 'Admin campus presence fetched from U-Panel. Also stored as employee punches (source UPANEL).',
+      //   render: () => <UPanelRecords kind="admin" />,
+      // },
+
+    ]} />
+  )
+}
+
+function TabletEmployeeRecord() {
+  const { tenantId } = useParams<{ tenantId: string }>()
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [rep, setRep] = useState<Report | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const sheetRef = useRef<HTMLInputElement>(null)
+
+  // The 29-column daily export goes to its own endpoint: it is a different file with a
+  // different shape, and sniffing one as the other would silently store the wrong thing.
+  async function handleSheetImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true); setImportMsg(null)
+    try {
+      const fd = new FormData(); fd.append('sheet', file)
+      const res = await api.upload<{ inserted: number; skipped: number; errors: string[] }>(
+        `/api/v1/admin/employee-attendance/sheet`, fd)
+      setImportMsg(`Imported ${res.inserted} day-record(s)` +
+        (res.skipped ? `, ${res.skipped} skipped` : '') +
+        (res.errors?.length ? ` · ${res.errors.slice(0, 3).join('; ')}` : ''))
+      load()
+    } catch (err) {
+      setImportMsg(err instanceof Error ? `Import failed: ${err.message}` : 'Import failed')
+    } finally {
+      setImporting(false)
+      if (sheetRef.current) sheetRef.current.value = ''
+    }
+  }
+  const [importing, setImporting] = useState(false)
+  const [importMsg, setImportMsg] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true); setErr(null)
+    try {
+      const qs = new URLSearchParams()
+      if (from) qs.set('from', from)
+      if (to) qs.set('to', to)
+      const res = await api.get<Report>(`/api/v1/admin/employee-attendance?${qs.toString()}`)
+      setRep(res)
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Failed to load report') }
+    finally { setLoading(false) }
+  }, [tenantId, from, to])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleImport(ev: React.ChangeEvent<HTMLInputElement>) {
+    const file = ev.target.files?.[0]
+    if (!file) return
+    setImporting(true); setImportMsg(null)
+    try {
+      const fd = new FormData(); fd.append('punches', file)
+      const res = await api.upload<{ inserted: number; updated: number; skipped: number; errors: string[] }>(
+        `/api/v1/admin/employee-attendance/import`, fd)
+      setImportMsg(`Imported: ${res.inserted} punches, ${res.updated} duplicates skipped, ${res.skipped} unreadable${res.errors?.length ? ` · ${res.errors.slice(0, 3).join('; ')}` : ''}`)
+      load()
+    } catch (e) { setImportMsg(e instanceof Error ? `Import failed: ${e.message}` : 'Import failed') }
+    finally { setImporting(false); if (fileRef.current) fileRef.current.value = '' }
+  }
+
+  // The same date range the report is showing is what gets exported.
+  const exportQuery = (() => {
+    const p = new URLSearchParams()
+    if (from) p.set('from', from)
+    if (to) p.set('to', to)
+    return p.toString()
+  })()
+
+  return (
+    <div>
+      <p style={{ color: 'var(--muted)', margin: '0 0 14px', fontSize: 13 }}>
+        Upload the biometric terminal's <strong>daily sheet</strong> — the export with Emp No., AC-No., On duty,
+        Clock In/Out and the overtime columns. Re-uploading the same period is safe: rows update in place
+        rather than doubling. The filtered view, with per-column search and export, is under
+        <strong> Employee Attendance</strong> on the QA, DQA and VC dashboards.
+      </p>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 14 }}>
+        {/* The 29-column daily export is the one HR actually produces, so it leads.
+            The older punch upload stays for terminals that only emit raw clock events. */}
+        <button onClick={() => sheetRef.current?.click()} disabled={importing} style={btnPrimary}>
+          {importing ? 'Importing…' : 'Import daily sheet'}
+        </button>
+        <input ref={sheetRef} type="file" accept=".csv,.xlsx" onChange={handleSheetImport} style={{ display: 'none' }} />
+        <button onClick={() => fileRef.current?.click()} disabled={importing} style={btnSmall}>{importing ? 'Importing…' : 'Import raw punches'}</button>
+        <input ref={fileRef} type="file" accept=".csv,.xlsx" onChange={handleImport} style={{ display: 'none' }} />
+        <button onClick={() => downloadText('tablet_punches_template.csv', PUNCH_COLS.join(',') + '\n')} style={btnSmall}>Template</button>
+        <span style={{ flex: 1 }} />
+        <Field label="From"><input type="date" value={from} onChange={e => setFrom(e.target.value)} style={inp} /></Field>
+        <Field label="To"><input type="date" value={to} onChange={e => setTo(e.target.value)} style={inp} /></Field>
+        <button onClick={load} style={btnSmall}>Apply</button>
+        <ExportButtons base={`/api/v1/admin/employee-attendance/export`}
+          filename="employee-attendance" query={exportQuery} disabled={!rep?.rows.length} />
+      </div>
+      {importMsg && <div style={{ background: importMsg.startsWith('Import failed') ? '#fef2f2' : '#f0fdf4', color: importMsg.startsWith('Import failed') ? '#b91c1c' : '#166534', padding: '10px 14px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{importMsg}</div>}
+      {err && <div style={{ background: '#fef2f2', color: '#b91c1c', padding: '10px 14px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{err}</div>}
+
+      {rep && <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>Period {rep.from} → {rep.to} · {rep.rows.length} employee(s)</div>}
+      {loading ? <p style={{ color: 'var(--muted)' }}>Loading…</p> : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr style={{ background: 'var(--surface-2)' }}>
+              <th style={th}>Staff ID</th><th style={th}>Name</th><th style={th}>Contact</th><th style={{ ...th, minWidth: 360 }}>Comment (auto)</th>
+            </tr></thead>
+            <tbody>
+              {(rep?.rows ?? []).map(r => (
+                <tr key={r.staff_id} style={{ borderTop: '1px solid var(--border)' }}>
+                  <td style={{ ...td, fontFamily: 'monospace' }}>{r.staff_id}</td>
+                  <td style={td}>{r.title ? `${r.title} ` : ''}{r.full_name}</td>
+                  <td style={{ ...td, color: 'var(--muted)' }}>{r.contact || '—'}</td>
+                  <td style={{ ...td, color: 'var(--muted)' }}>{r.comment}</td>
+                </tr>
+              ))}
+              {rep && rep.rows.length === 0 && <tr><td colSpan={4} style={{ ...td, textAlign: 'center', color: 'var(--muted)', padding: 28 }}>No employees or punches in this period. Register employees, then import the tablet's export.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <label style={{ display: 'block' }}><div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 3 }}>{label}</div>{children}</label>
+}
+
+const th: React.CSSProperties = { padding: '8px 12px', textAlign: 'left', color: 'var(--muted)', fontSize: 12, whiteSpace: 'nowrap' }
+const td: React.CSSProperties = { padding: '9px 12px', verticalAlign: 'top' }
+const inp: React.CSSProperties = { padding: '7px 10px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13, background: 'var(--surface)', color: 'var(--text)' }
+const btnPrimary: React.CSSProperties = { padding: '8px 16px', background: 'var(--brand)', color: 'var(--brand-contrast)', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }
+const btnSmall: React.CSSProperties = { padding: '7px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: 'var(--text)' }

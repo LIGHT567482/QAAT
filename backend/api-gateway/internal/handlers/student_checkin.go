@@ -1,0 +1,244 @@
+package handlers
+
+// ── STUDENT MODULE: DEFERRED TO V2 ───────────────────────────────────────────────────────────
+//
+// Nothing in this file is reachable in v1. KIU QAAT ships as an internal Quality Assurance
+// system, and every route that reached these handlers is commented out in
+// internal/router/router.go. The code is retained, not deleted: it still compiles and its tests
+// still run, so restoring the module is uncommenting its routes rather than rewriting it.
+
+// StudentCheckin handles POST /api/v1/student/checkin (STUDENT role, JWT-authenticated).
+//
+// Identity is proven by the student's JWT (email → student_id lookup).
+// Proximity is proven by the rotating room code shown on the coordinator's screen.
+// No QR image is required — the authenticated account IS the identity proof.
+
+import (
+	"errors"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/qaat/api-gateway/internal/checkin"
+	"github.com/qaat/api-gateway/internal/middleware"
+)
+
+type studentCheckinRequest struct {
+	SessionID         string `json:"session_id"`
+	RoomCode          string `json:"room_code"`
+	DeviceFingerprint string `json:"device_fingerprint"` // hash of the student's device
+}
+
+// checkinResponse is the wire shape every check-in path answers with — shared with
+// the in-room hub's sync payloads so a phone and the cloud speak the same language.
+type checkinResponse struct {
+	Status            string `json:"status"`
+	Reason            string `json:"reason,omitempty"`
+	StudentName       string `json:"student_name,omitempty"`
+	UnitName          string `json:"unit_name,omitempty"`
+	LecturerName      string `json:"lecturer_name,omitempty"`
+	SessionDate       string `json:"session_date,omitempty"`
+	AttendancePercent int    `json:"attendance_percent,omitempty"`
+}
+
+func StudentCheckin(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tenantID := middleware.GetTenantID(r.Context())
+		userID := middleware.GetUserID(r.Context()) // user_id from users table
+
+		var req studentCheckinRequest
+		if err := decodeJSON(r, &req); err != nil || req.SessionID == "" || req.RoomCode == "" {
+			writeJSON(w, http.StatusBadRequest, checkinResponse{Status: "REJECTED", Reason: "INVALID_REQUEST"})
+			return
+		}
+
+		conn, err := pool.Acquire(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, checkinResponse{Status: "REJECTED", Reason: "INTERNAL_ERROR"})
+			return
+		}
+		defer conn.Release()
+		if err := middleware.SetTenantConn(r.Context(), conn, tenantID); err != nil {
+			writeJSON(w, http.StatusInternalServerError, checkinResponse{Status: "REJECTED", Reason: "INTERNAL_ERROR"})
+			return
+		}
+
+		// Resolve student_id from the authenticated user's email within this tenant.
+		var studentID, enrollment string
+		err = conn.QueryRow(r.Context(), `
+			SELECT se.student_id, se.enrollment_status::text
+			FROM users u
+			JOIN students_extended se ON se.email = u.email
+			WHERE u.user_id = $1 AND u.tenant_id = $2`,
+			userID, tenantID).Scan(&studentID, &enrollment)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			writeJSON(w, http.StatusForbidden, checkinResponse{Status: "REJECTED", Reason: "NOT_ON_ROSTER"})
+			return
+		case err != nil:
+			writeJSON(w, http.StatusInternalServerError, checkinResponse{Status: "REJECTED", Reason: "INTERNAL_ERROR"})
+			return
+		}
+		if enrollment != "ACTIVE" {
+			writeJSON(w, http.StatusForbidden, checkinResponse{Status: "REJECTED", Reason: "NOT_ON_ROSTER"})
+			return
+		}
+
+		// Fetch active session and validate it belongs to this tenant.
+		var (
+			secret        []byte
+			status        string
+			coordID       string
+			windowStart   *time.Time
+			windowEnd     *time.Time
+			coordinatorIP string
+			deliveryMode  string
+			offeringID    string
+		)
+		err = conn.QueryRow(r.Context(), `
+			SELECT s.checkin_secret, s.session_status::text, s.coordinator_id,
+			       s.checkin_window_start, s.checkin_window_end,
+			       COALESCE(s.coordinator_ip,''), COALESCE(s.delivery_mode,'IN_PERSON'),
+			       COALESCE(s.offering_id::text,'')
+			FROM sessions s
+			WHERE s.session_id = $1`,
+			req.SessionID).Scan(&secret, &status, &coordID, &windowStart, &windowEnd,
+			&coordinatorIP, &deliveryMode, &offeringID)
+		if err != nil || len(secret) == 0 {
+			writeJSON(w, http.StatusUnprocessableEntity, checkinResponse{Status: "REJECTED", Reason: "SESSION_NOT_ACTIVE"})
+			return
+		}
+		if status != "ACTIVE" {
+			writeJSON(w, http.StatusUnprocessableEntity, checkinResponse{Status: "REJECTED", Reason: "SESSION_NOT_ACTIVE"})
+			return
+		}
+		now := time.Now().UTC()
+		if (windowStart != nil && now.Before(*windowStart)) || (windowEnd != nil && now.After(*windowEnd)) {
+			writeJSON(w, http.StatusUnprocessableEntity, checkinResponse{Status: "REJECTED", Reason: "GATE_NOT_OPEN"})
+			return
+		}
+
+		// ── The two proximity proofs, or their distance-learning replacement ────
+		//
+		// An ONLINE session (migration 087) is a distance / e-learning class: there is no room,
+		// no coordinator hotspot, and therefore nothing for the LAN gate to compare against. Run
+		// down the physical path it would reject every distance student with NOT_SAME_NETWORK,
+		// which is why those cohorts had no attendance at all.
+		//
+		// The gate is NOT relaxed for anyone else. Only a session that was explicitly opened as
+		// ONLINE — which the lecturer may only do for a cohort the institution has marked as
+		// e-learning — takes the branch below. A campus session is still judged exactly as before.
+		if deliveryMode == "ONLINE" {
+			// The ROTATING code, not the static one. On campus the static code is safe because
+			// the LAN gate is doing the real work; with no LAN a code that never changed would be
+			// forwarded once on WhatsApp and reused by the whole year group for the rest of the
+			// hour. Rotating narrows that to the ~30s the code is live, which is the most this
+			// can honestly claim: no remote system can prove a body is in front of a screen.
+			if !checkin.Validate(secret, strings.TrimSpace(req.RoomCode), now) {
+				writeJSON(w, http.StatusUnprocessableEntity, checkinResponse{Status: "REJECTED", Reason: "CODE_NOT_CURRENT"})
+				return
+			}
+			// Cohort membership, which the physical path does not require and should not: being in
+			// the room is itself the proof, and a student sitting in on another cohort's lecture is
+			// legitimately marked a guest. Online there is no room to have walked into, so the only
+			// thing left standing between a shared code and a stranger's attendance record is
+			// whether this student is actually enrolled in the class.
+			if offeringID != "" {
+				var enrolledHere bool
+				_ = conn.QueryRow(r.Context(), `
+					SELECT EXISTS(SELECT 1 FROM students_extended se
+					    WHERE se.tenant_id = $1 AND se.student_id = $2
+					      AND se.offering_id = $3::uuid)`,
+					tenantID, studentID, offeringID).Scan(&enrolledHere)
+				if !enrolledHere {
+					writeJSON(w, http.StatusForbidden, checkinResponse{Status: "REJECTED", Reason: "NOT_IN_THIS_COHORT"})
+					return
+				}
+			}
+		} else {
+			// Proximity proof #1: the session's STATIC student room code (does not rotate).
+			// The hard proximity proof is the mandatory LAN check below; this just selects
+			// the room. (The lecturer gate keeps the rotating code.)
+			if !checkin.ValidateStatic(secret, req.RoomCode) {
+				writeJSON(w, http.StatusUnprocessableEntity, checkinResponse{Status: "REJECTED", Reason: "PROXIMITY_FAILED"})
+				return
+			}
+
+			// The mandatory same-LAN check that used to sit here is GONE with the hotspot.
+			// Proximity is now proven by the GPS geofence on /attendance/geo-checkin, and a
+			// no-signal hall is served by capturing locally and uploading later rather than by
+			// a coordinator-run radio.
+			//
+			// Worth stating plainly, because the room code above reads like a proximity proof and
+			// is not one: it is STATIC per session, so anyone told it over the phone can send it.
+			// The LAN check was what made it proof. On this path what remains is knowledge of a
+			// shared code, which selects the room rather than establishing presence in it.
+		}
+
+		// Lecturer-started gate: attendance is valid only once the lecturer has scanned
+		// the coordinator's QR to START the lecture. Reject until then.
+		var lecturerStarted bool
+		_ = conn.QueryRow(r.Context(),
+			`SELECT EXISTS(SELECT 1 FROM lecturer_attendance_logs WHERE session_id = $1 AND lecturer_scanned_at IS NOT NULL)`,
+			req.SessionID).Scan(&lecturerStarted)
+		if !lecturerStarted {
+			writeJSON(w, http.StatusUnprocessableEntity, checkinResponse{Status: "REJECTED", Reason: "LECTURER_NOT_STARTED"})
+			return
+		}
+
+		// Device binding: one device can mark ONE person present per session. If this
+		// device already checked in a DIFFERENT student this session, reject it — this
+		// stops a proxy logging into several students' accounts on one phone.
+		fp := strings.TrimSpace(req.DeviceFingerprint)
+		if fp != "" {
+			var deviceUsedBy string
+			_ = conn.QueryRow(r.Context(), `
+				SELECT student_id FROM attendance_logs
+				WHERE session_id = $1 AND device_fingerprint_hash = $2 LIMIT 1`,
+				req.SessionID, fp).Scan(&deviceUsedBy)
+			if deviceUsedBy != "" && deviceUsedBy != studentID {
+				writeJSON(w, http.StatusUnprocessableEntity, checkinResponse{Status: "REJECTED", Reason: "DEVICE_ALREADY_USED"})
+				return
+			}
+		}
+
+		// Duplicate check: one attendance record per student per session.
+		var dup bool
+		if err := conn.QueryRow(r.Context(), `
+			SELECT EXISTS(SELECT 1 FROM attendance_logs
+			    WHERE session_id = $1 AND student_id = $2)`,
+			req.SessionID, studentID).Scan(&dup); err != nil {
+			writeJSON(w, http.StatusInternalServerError, checkinResponse{Status: "REJECTED", Reason: "INTERNAL_ERROR"})
+			return
+		}
+		if dup {
+			writeJSON(w, http.StatusOK, checkinResponse{Status: "PRESENT"}) // idempotent
+			return
+		}
+
+		// Record attendance.
+		var seq int
+		if err := conn.QueryRow(r.Context(),
+			`SELECT COALESCE(MAX(sequence_number),0)+1 FROM attendance_logs WHERE session_id = $1`,
+			req.SessionID).Scan(&seq); err != nil {
+			writeJSON(w, http.StatusInternalServerError, checkinResponse{Status: "REJECTED", Reason: "INTERNAL_ERROR"})
+			return
+		}
+		_, err = conn.Exec(r.Context(), `
+			INSERT INTO attendance_logs
+			    (tenant_id, session_id, student_id, checkin_timestamp,
+			     device_fingerprint_hash, sequence_number, entry_method, coordinator_id)
+			VALUES ($1, $2, $3, $4, $5, $6, 'AUTHENTICATED', $7)`,
+			tenantID, req.SessionID, studentID, now, fp, seq, coordID)
+		if err != nil {
+			// Concurrent duplicate trips the unique index — treat as success.
+			writeJSON(w, http.StatusOK, checkinResponse{Status: "PRESENT"})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, checkinResponse{Status: "PRESENT"})
+	}
+}

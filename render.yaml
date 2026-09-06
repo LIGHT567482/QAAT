@@ -1,0 +1,330 @@
+# QAAT — Render Blueprint (Infrastructure as Code)
+# ---------------------------------------------------------------------------
+# Provisions the whole backend: managed Postgres + Redis (Key Value) + 5 services.
+# Launch via Render dashboard → "New → Blueprint" pointed at this repo, or
+# `render blueprint launch`.
+#
+# EVERYTHING IS ON THE FREE PLAN, to validate the deploy before it costs anything.
+# Two consequences worth knowing before debugging a "broken" deploy:
+#   • Render offers no free instance type for a private service (`pserv`), so the
+#     four internal services are declared as `web` here. They each get a public
+#     onrender.com URL, which is why the gateway addresses them by https:// URL
+#     rather than by the internal http://qaat-*:port name.
+#   • Free services sleep after ~15 minutes idle and cold-start slowly. The first
+#     request after a sleep can surface as a 502 at the gateway. That is the free
+#     tier working as designed, not a misconfiguration — move the gateway and
+#     auth to `starter` when the flakiness stops being acceptable.
+#   • The free Postgres plan is REMOVED BY RENDER AFTER 30 DAYS. Upgrade it before
+#     then or the database, and everything in it, goes away.
+#
+# THREE things this file cannot do for you (Render requires them out-of-band):
+#   1. RSA JWT keys  — upload keys/auth_private.pem + keys/auth_public.pem as
+#      "Secret Files" on each service (mounted at /etc/secrets/…). Paths are set below.
+#   2. DB_URL (qaat_app) — after the DB exists, run infra/render/bootstrap_db.sh to
+#      apply migrations + create the RLS role, then paste the qaat_app URL where DB_URL
+#      is marked `sync: false`.
+#   3. Secrets marked `sync: false` — paste the values from
+#      infra/render/secrets.generated.env (KEY_ENCRYPTION_KEY, INTERNAL_SVC_KEY) once.
+# ---------------------------------------------------------------------------
+
+databases:
+  - name: qaat-postgres
+    databaseName: qaat
+    user: qaat            # owner role; the RLS `qaat_app` role is created by bootstrap
+    plan: free            # bump to `starter`+ for production durability
+    region: oregon
+    postgresMajorVersion: "15"
+
+services:
+  # ─── Redis / Key Value (auth jti blacklist + sync chunk staging) ───────────
+  - type: keyvalue
+    name: qaat-redis
+    plan: free
+    region: oregon
+    ipAllowList: []       # internal-only, no public access
+    maxmemoryPolicy: noeviction
+
+  # ─── Shared secrets (identical across services that must agree) ────────────
+  # Defined once in the `qaat-shared` group at the bottom and pulled in with a bare
+  # `- fromGroup: qaat-shared` entry, so KEY_ENCRYPTION_KEY / INTERNAL_SVC_KEY are the
+  # SAME string everywhere (a mismatch breaks sealed packages + service-to-service
+  # token minting).
+  #
+  # IT IS ALL OR NOTHING. `fromGroup` links the whole group; Render rejects the blueprint
+  # if it appears next to a `key:`, so there is no importing three of the six. Services
+  # therefore receive group variables they do not read — harmless, but it does mean
+  # KEY_ENCRYPTION_KEY is present in a container or two that never uses it. Anything that
+  # must NOT be shared belongs in the service's own envVars, not in the group.
+
+  # ─── api-gateway (PUBLIC entry point) ──────────────────────────────────────
+  - type: web
+    name: kiu-qaat-gateway
+    runtime: docker
+    repo: https://github.com/LIGHT567482/KIU-QAAT
+    branch: main
+    rootDir: backend/api-gateway
+    dockerfilePath: Dockerfile
+    region: oregon
+    plan: free            # sleeps when idle; first request after a sleep is slow
+    healthCheckPath: /health
+    envVars:
+      # Civil time. Every "what day is it" in the gateway resolves through
+      # internal/clock, which reads INSTITUTION_TZ; TZ pins the container (and
+      # therefore Postgres session time) to match. Without these the services
+      # run UTC and every date is three hours out.
+      - key: TZ
+        value: Africa/Kampala
+      - key: INSTITUTION_TZ
+        value: Africa/Kampala
+      # Guards /internal/cron/*. The gateway runs its own in-process scheduler, so
+      # this is only needed if you also drive the jobs from an external pinger —
+      # but without it set, that endpoint 401s everything, which reads as broken.
+      - key: CRON_SECRET
+        sync: false
+      # The scheduled employee alerts POST here. The in-code default is the compose
+      # service name, which does not resolve on Render — so this is required, not
+      # optional, and a missing value means the alerts silently go nowhere.
+      - key: NOTIFICATION_URL
+        value: https://kiu-qaat-notify.onrender.com
+      - key: PORT
+        value: "8443"
+      - key: ENVIRONMENT
+        value: production
+      - key: ADMIN_DB_URL          # privileged owner role (cross-tenant admin handlers)
+        fromDatabase:
+          name: qaat-postgres
+          property: connectionString
+      - key: DB_URL                # RLS role — paste qaat_app URL after bootstrap
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: qaat-redis
+          property: connectionString
+      - key: CORS_ORIGINS
+        value: https://kiu-qaat-admin.vercel.app,https://kiu-qaat-student.vercel.app
+      # qaat-auth is currently deployed as a PUBLIC web service (has an onrender.com URL), so the
+      # gateway reaches it over the public edge — the internal `http://qaat-auth:8081` address
+      # black-holes when the service is asleep, which surfaces as an edge 502 on /auth/login.
+      # (If you later redeploy qaat-auth as a private service on a non-sleeping plan, switch this
+      # back to http://qaat-auth:8081 for private-network, no-egress routing.)
+      - key: AUTH_SERVICE_URL
+        value: https://kiu-qaat-auth.onrender.com
+      # Same as auth: these are deployed as PUBLIC web services, so reach them over the public edge.
+      # The internal http://qaat-*:port addresses black-hole (→ 502) unless they're private services.
+      - key: SESSION_MANAGER_URL
+        value: https://kiu-qaat-session.onrender.com
+      - key: SYNC_RECEIVER_URL
+        value: https://kiu-qaat-sync.onrender.com
+      # JWT_ISSUER, JWT_AUDIENCE, KEY_ENCRYPTION_KEY, INTERNAL_SVC_KEY — see the group at the
+      # bottom of this file. `fromGroup` links the WHOLE group in one entry; it cannot be
+      # attached to an individual `key`, so there is no way to import only some of them.
+      - fromGroup: qaat-shared
+      - key: RSA_PUBLIC_KEY_PATH
+        value: /etc/secrets/auth_public.pem
+      - key: WEBAUTHN_RP_ID
+        value: kiu-qaat-gateway.onrender.com
+      - key: WEBAUTHN_RP_NAME
+        value: QAAT
+      - key: WEBAUTHN_RP_ORIGINS
+        value: https://kiu-qaat-gateway.onrender.com
+      - key: STUDENT_CHECKIN_BASE_URL
+        value: https://kiu-qaat-gateway.onrender.com
+      - key: LECTURER_CHECKIN_BASE_URL
+        value: https://kiu-qaat-gateway.onrender.com
+
+  # ─── auth-service ──────────────────────────────────────────────────────────
+  # `web`, not `pserv`: there is no free private-service instance type.
+  - type: web
+    name: kiu-qaat-auth
+    runtime: docker
+    repo: https://github.com/LIGHT567482/KIU-QAAT
+    branch: main
+    rootDir: backend/auth-service
+    dockerfilePath: Dockerfile
+    region: oregon
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # Civil time. Every "what day is it" in the gateway resolves through
+      # internal/clock, which reads INSTITUTION_TZ; TZ pins the container (and
+      # therefore Postgres session time) to match. Without these the services
+      # run UTC and every date is three hours out.
+      - key: TZ
+        value: Africa/Kampala
+      - key: INSTITUTION_TZ
+        value: Africa/Kampala
+      - key: PORT
+        value: "8081"
+      - key: ENVIRONMENT
+        value: production
+      - key: DB_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: qaat-redis
+          property: connectionString
+      - fromGroup: qaat-shared
+      - key: RSA_PRIVATE_KEY_PATH
+        value: /etc/secrets/auth_private.pem
+      - key: RSA_PUBLIC_KEY_PATH
+        value: /etc/secrets/auth_public.pem
+      - key: DISABLE_MFA          # standalone single-institution: VC/DQA sign in with password only
+        value: "true"
+
+  # ─── session-manager ───────────────────────────────────────────────────────
+  - type: web
+    name: kiu-qaat-session
+    runtime: docker
+    repo: https://github.com/LIGHT567482/KIU-QAAT
+    branch: main
+    rootDir: backend/session-manager
+    dockerfilePath: Dockerfile
+    region: oregon
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # Civil time. Every "what day is it" in the gateway resolves through
+      # internal/clock, which reads INSTITUTION_TZ; TZ pins the container (and
+      # therefore Postgres session time) to match. Without these the services
+      # run UTC and every date is three hours out.
+      - key: TZ
+        value: Africa/Kampala
+      - key: INSTITUTION_TZ
+        value: Africa/Kampala
+      - key: PORT
+        value: "8082"
+      # DB_URL and REDIS_URL were BOTH absent from this service, which is why every deploy of it
+      # exited with "missing required env var key=DB_URL". backend/session-manager requires both at
+      # startup, so the blueprint declared a service that could never boot. Matched to the shape
+      # sync-receiver uses: the RLS role's URL is pasted in by hand after bootstrap_db.sh has
+      # created qaat_app (there is no Render property that yields a non-owner role's URL), while
+      # Redis is wired automatically because Render knows its own connection string.
+      - key: DB_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: qaat-redis
+          property: connectionString
+      - fromGroup: qaat-shared
+      - key: RSA_PUBLIC_KEY_PATH
+        value: /etc/secrets/auth_public.pem
+      - key: WARDEN_BASE_URL
+        value: https://kiu-qaat-gateway.onrender.com
+
+  # ─── sync-receiver ─────────────────────────────────────────────────────────
+  - type: web
+    name: kiu-qaat-sync
+    runtime: docker
+    repo: https://github.com/LIGHT567482/KIU-QAAT
+    branch: main
+    rootDir: backend/sync-receiver
+    dockerfilePath: Dockerfile
+    region: oregon
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # Civil time. Every "what day is it" in the gateway resolves through
+      # internal/clock, which reads INSTITUTION_TZ; TZ pins the container (and
+      # therefore Postgres session time) to match. Without these the services
+      # run UTC and every date is three hours out.
+      - key: TZ
+        value: Africa/Kampala
+      - key: INSTITUTION_TZ
+        value: Africa/Kampala
+      - key: PORT
+        value: "8083"
+      - key: DB_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: qaat-redis
+          property: connectionString
+      - key: SYNC_SIGN_KEY
+        sync: false
+      - fromGroup: qaat-shared
+      - key: RSA_PUBLIC_KEY_PATH
+        value: /etc/secrets/auth_public.pem
+
+  # ─── notification-service ──────────────────────────────────────────────────
+  - type: web
+    name: kiu-qaat-notify
+    runtime: docker
+    repo: https://github.com/LIGHT567482/KIU-QAAT
+    branch: main
+    rootDir: backend/notification-service
+    dockerfilePath: Dockerfile
+    region: oregon
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # Civil time. Every "what day is it" in the gateway resolves through
+      # internal/clock, which reads INSTITUTION_TZ; TZ pins the container (and
+      # therefore Postgres session time) to match. Without these the services
+      # run UTC and every date is three hours out.
+      - key: TZ
+        value: Africa/Kampala
+      - key: INSTITUTION_TZ
+        value: Africa/Kampala
+      - key: PORT
+        value: "3004"
+      - key: PLATFORM_DOMAIN
+        value: kiu-qaat-gateway.onrender.com
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_SECURE
+        value: "true"
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      # WhatsApp for the employee attendance alerts (late/early check-in, check-out
+      # reminder). Employees are non-teaching staff with no dashboard account, so
+      # email and WhatsApp are the only channels that reach them.
+      #
+      # Leave WHATSAPP_PROVIDER blank and sendWhatsApp LOGS each message instead of
+      # sending it — a deliberate no-op, so the flow works end to end without
+      # credentials and email is unaffected. Set it to `twilio` or `meta` and fill in
+      # that provider's pair to light it up, with no redeploy of anything else.
+      - key: WHATSAPP_PROVIDER
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_WHATSAPP_FROM
+        sync: false
+      - key: META_PHONE_NUMBER_ID
+        sync: false
+      - key: META_ACCESS_TOKEN
+        sync: false
+
+# ─── Shared env var group ────────────────────────────────────────────────────
+envVarGroups:
+  - name: qaat-shared
+    envVars:
+      # Civil time. Every "what day is it" in the gateway resolves through
+      # internal/clock, which reads INSTITUTION_TZ; TZ pins the container (and
+      # therefore Postgres session time) to match. Without these the services
+      # run UTC and every date is three hours out.
+      - key: TZ
+        value: Africa/Kampala
+      - key: INSTITUTION_TZ
+        value: Africa/Kampala
+      - key: JWT_ISSUER
+        value: qaat-auth
+      - key: JWT_AUDIENCE
+        value: qaat-api
+      - key: KEY_ENCRYPTION_KEY   # paste from infra/render/secrets.generated.env
+        sync: false
+      - key: INTERNAL_SVC_KEY     # paste from infra/render/secrets.generated.env
+        sync: false

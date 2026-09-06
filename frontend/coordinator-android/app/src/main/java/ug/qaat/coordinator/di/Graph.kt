@@ -1,0 +1,39 @@
+package ug.qaat.coordinator.di
+
+import android.content.Context
+import androidx.room.Room
+import ug.qaat.coordinator.data.Repository
+import ug.qaat.coordinator.db.AppDatabase
+import ug.qaat.coordinator.db.MIGRATION_1_2
+import ug.qaat.coordinator.db.MIGRATION_2_3
+import ug.qaat.coordinator.db.MIGRATION_3_4
+import ug.qaat.coordinator.db.MIGRATION_4_5
+import ug.qaat.coordinator.db.MIGRATION_5_6
+import ug.qaat.coordinator.db.MIGRATION_6_7
+import ug.qaat.coordinator.db.MIGRATION_7_8
+import ug.qaat.coordinator.db.MIGRATION_8_9
+import ug.qaat.coordinator.db.MIGRATION_9_10
+import ug.qaat.coordinator.db.MIGRATION_10_11
+
+/** Tiny manual service-locator (no Hilt) — one DB instance shared by the UI + the service. */
+object Graph {
+    lateinit var db: AppDatabase
+        private set
+    lateinit var repo: Repository
+        private set
+    lateinit var appContext: Context
+        private set
+
+    fun init(context: Context) {
+        appContext = context.applicationContext
+        if (::db.isInitialized) return
+        // Production: wrap with SQLCipher SupportFactory keyed by an Android-Keystore secret.
+        db = Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "qaat.db")
+            // Every migration must be listed here. One left off and fallbackToDestructiveMigration
+            // below swallows it silently — taking an unsynced round with it.
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+            .fallbackToDestructiveMigration()   // safety net for any unforeseen schema drift
+            .build()
+        repo = Repository(db.dao())
+    }
+}

@@ -1,0 +1,388 @@
+package ug.qaat.coordinator.ui
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import ug.qaat.coordinator.di.Graph
+import ug.qaat.coordinator.db.SessionEntity
+import ug.qaat.coordinator.net.DashboardClient
+import ug.qaat.coordinator.net.ManifestClient
+import ug.qaat.coordinator.store.SessionStore
+import ug.qaat.coordinator.sync.SyncManager
+import java.time.LocalDate
+
+
+/**
+ * The coordinator home — mirrors the coordinator PWA Dashboard: cohort card, live-sessions
+ * panel, and Timetable / Units / Students / Last-roster tabs, plus refresh-and-sync.
+ * Taking attendance lives on the "Attendance" tab.
+ */
+@Composable
+fun DashboardScreen() {
+    val token = AppState.token
+    val scope = rememberCoroutineScope()
+    val client = remember { DashboardClient() }
+
+    var overview by remember { mutableStateOf<DashboardClient.Overview?>(null) }
+    var students by remember { mutableStateOf<List<DashboardClient.Student>>(emptyList()) }
+    var last by remember { mutableStateOf<DashboardClient.LastRoster?>(null) }
+    var active by remember { mutableStateOf<List<DashboardClient.ActiveSession>>(emptyList()) }
+    var loaded by remember { mutableStateOf(false) }
+    var tab by remember { mutableStateOf(0) }
+    var closing by remember { mutableStateOf<String?>(null) }
+
+    suspend fun refreshActive() { token?.let { active = runCatching { client.activeSessions(it) }.getOrDefault(emptyList()) } }
+    suspend fun loadOnline() {
+        val t = token ?: return
+        val m = AppState.manifest
+        val ov = runCatching { client.overview(t) }.getOrNull()
+        if (ov != null) {
+            overview = ov
+            ov.offering?.let {
+                AppState.cohortLabel = listOf(it.school, it.department, it.courseName, it.sessionType, "Year ${it.studyYear}", "Sem ${it.semester}", it.level, it.intake)
+                    .filter { s -> s.isNotBlank() }.joinToString(" · ")
+            }
+        } else if (m != null) {
+            // Offline fallback: the cached WEEKLY grid, one entry per day a unit runs, so the
+            // Timetable tab shows the same week offline that it shows online. m.units carries
+            // only the earliest slot per unit — enough to pick a session, not enough to be a
+            // timetable — so it is the fallback's fallback, for a phone whose manifest predates
+            // the cached grid.
+            val units = m.slots.takeIf { it.isNotEmpty() }?.map { s ->
+                DashboardClient.Unit(s.unitId, s.unitName, 0, 0,
+                    s.dayOfWeek, s.startTime, s.durationMinutes, s.lecturerName, s.room, s.lecturerPhone)
+            } ?: m.units.map { u ->
+                DashboardClient.Unit(u.unitId, u.unitName, 0, 0,
+                    u.dayOfWeek, u.startTime, u.durationMinutes, u.lecturerName, u.venueId, u.lecturerPhone)
+            }
+            overview = DashboardClient.Overview(null, units)
+        }
+        students = runCatching { client.students(t) }.getOrDefault(emptyList()).ifEmpty {
+            // Offline fallback: the cohort roster, by REGISTRATION NUMBER AND NAME.
+            //
+            // This used to list the privacy hash with "—" for a name, which is unreadable and
+            // unusable: a coordinator offline could not tell who was in their own cohort. The
+            // hash is what the durable ledger keys on; the reg-no and name have been cached
+            // beside it since the manifest started carrying them, and are display fields.
+            if (m != null) {
+                val seen = mutableSetOf<String>()
+                m.rosterByUnit.values.flatten().mapNotNull { e ->
+                    if (!seen.add(e.studentIdHash)) return@mapNotNull null
+                    DashboardClient.Student(
+                        e.studentId.ifBlank { e.studentIdHash.take(12) + "…" },
+                        e.fullName.ifBlank { "—" }, 0, 0, "", "ACTIVE",
+                    )
+                }.sortedBy { it.fullName }
+            } else emptyList()
+        }
+        last = runCatching { client.lastRoster(t) }.getOrNull() ?: withContext(Dispatchers.IO) {
+            // Offline fallback: build last-roster from Room attendance. MUST run off the main
+            // thread — Room throws IllegalStateException on a main-thread query (loadOnline is
+            // launched from a Compose LaunchedEffect, which dispatches on the UI thread).
+            val dao = Graph.db.dao()
+            val recent = if (AppState.currentSessionId != null)
+                listOfNotNull(dao.rosterForSession(AppState.currentSessionId!!).takeIf { it.isNotEmpty() }?.let {
+                    SessionEntity(AppState.currentSessionId!!, "", "", "LOCAL", it.size)
+                })
+            else emptyList()
+            val s = (recent + dao.pendingSyncSessions()).maxByOrNull { it.sessionDate }
+            if (s != null) {
+                val records = dao.rosterForSession(s.sessionId)
+                // Resolve each ledger hash back to the person. The roster cached for the session's
+                // unit holds the mapping, so "who was present" reads as names offline instead of
+                // a column of hex the coordinator cannot act on.
+                val byHash = dao.roster(s.unitId).associateBy { it.studentIdHash }
+                val rows = records.map { r ->
+                    val who = byHash[r.studentIdHash]
+                    DashboardClient.RosterRow(
+                        who?.studentId?.ifBlank { null } ?: r.studentIdHash.take(12) + "…",
+                        who?.fullName.orEmpty(),
+                        "PRESENT", r.checkinTimestamp,
+                    )
+                }
+                DashboardClient.LastRoster(s.unitId, s.sessionDate, records.size, records.size, rows)
+            } else null
+        }
+        refreshActive()
+    }
+
+    // Reload when the token or the global refresh tick (the top-nav ⟳) changes.
+    LaunchedEffect(token, AppState.refreshTick) { loadOnline(); loaded = true }
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        // Welcome — greet the coordinator by the name on their login credential.
+        Text("Welcome, ${AppState.displayName} 👋", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+        Text("Tap ⟳ (top-right) to download today's data, then take attendance even with no internet.",
+            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(12.dp))
+
+        // Cohort details moved into the profile popup; only flag the GENUINELY unassigned case.
+        // A coordinator IS assigned if we have any cohort signal — units (online or cached), a
+        // cohort label, or a cached manifest with units. Only then is the banner suppressed, so an
+        // admin-assigned session that the overview call didn't return (e.g. offline / server waking)
+        // no longer shows a misleading "not assigned".
+        val hasCohort = (overview?.units?.isNotEmpty() == true) ||
+            (AppState.manifest?.units?.isNotEmpty() == true) ||
+            !AppState.cohortLabel.isNullOrBlank()
+        if (overview?.offering == null && loaded && !hasCohort) {
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+                Text("You are not yet assigned to a session. Ask your administrator to add you as a coordinator of a session.",
+                    Modifier.padding(14.dp), fontSize = 13.sp)
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // ── Live sessions in progress ────────────────────────────────────────────
+        if (active.isNotEmpty()) {
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                Column(Modifier.padding(14.dp)) {
+                    Text("● Live session${if (active.size > 1) "s" else ""} in progress", fontWeight = FontWeight.Bold)
+                    active.forEach { s ->
+                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(s.unitName, fontWeight = FontWeight.SemiBold)
+                                Text("${if (s.status == "PENDING_LECTURER") "Awaiting lecturer" else "Active"} · ${s.presentCount} checked in",
+                                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Button(
+                                onClick = {
+                                    closing = s.sessionId
+                                    scope.launch {
+                                        token?.let { client.closeSession(it, s.sessionId) }
+                                        refreshActive(); last = token?.let { runCatching { client.lastRoster(it) }.getOrNull() }
+                                        closing = null
+                                    }
+                                },
+                                enabled = closing != s.sessionId,
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                            ) { Text(if (closing == s.sessionId) "Closing…" else "Close") }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // (Emergency standby now lives on the Attendance screen.)
+
+        // ── Tabs ─────────────────────────────────────────────────────────────────
+        // ── STUDENT MODULE: DEFERRED TO V2 ───────────────────────────────────────
+        // The Students and Last-roster tabs read /api/v1/coordinator/students and
+        // /api/v1/coordinator/last-roster, both commented out in the gateway. StudentsView and
+        // LastRosterView are retained below and still compile; only the tabs are gone. The
+        // Timetable and Units tabs are the coordinator's own and are untouched. Restore by
+        // swapping the two lists below back and uncommenting the branches in `when (tab)`.
+        val tabTitles = listOf("Timetable", "Units (${overview?.units?.size ?: 0})")
+        // val tabTitles = listOf("Timetable", "Units (${overview?.units?.size ?: 0})", "Students (${students.size})", "Last roster")
+
+        ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
+            tabTitles.forEachIndexed { i, title -> Tab(selected = tab == i, onClick = { tab = i }, text = { Text(title, fontSize = 13.sp) }) }
+        }
+        Spacer(Modifier.height(10.dp))
+
+        when (tab) {
+            0 -> TimetableView(overview?.units ?: emptyList(), overview?.offering?.sessionType ?: "")
+            1 -> UnitsView(overview?.units ?: emptyList())
+            // STUDENT MODULE: DEFERRED TO V2 — restore with the two tab titles above.
+            // 2 -> StudentsView(students)
+            // 3 -> LastRosterView(last)
+
+        }
+
+        Spacer(Modifier.height(20.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(10.dp))
+        Text("Sync status is in the Sync tab below.",
+
+            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+// The week itself is drawn by the shared [TimetableGrid], so the coordinator's timetable and the
+// student's are the same picture of the same week. This only maps units onto it.
+@Composable
+private fun TimetableView(units: List<DashboardClient.Unit>, sessionType: String) {
+    val scheduled = units.filter { it.dayOfWeek in 1..7 && it.start.isNotBlank() }
+    val unscheduled = units.filter { !(it.dayOfWeek in 1..7 && it.start.isNotBlank()) }
+    if (scheduled.isEmpty() && unscheduled.isEmpty()) { EmptyNote("No units in this session yet. Ask your admin to add units, then set each unit's day & time when you open it."); return }
+    TimetableGrid(
+        entries = scheduled.map { u ->
+            TtEntry(
+                name = u.name,
+                dayOfWeek = u.dayOfWeek,
+                start = u.start,
+                durationMin = u.durationMin,
+                detail = listOfNotNull(
+                    u.room.takeIf { it.isNotBlank() },
+                    u.lecturers.takeIf { it.isNotBlank() },
+                    u.lecturerPhone.takeIf { it.isNotBlank() }?.let { "☎ $it" },
+                ).joinToString(" · "),
+            )
+        },
+        sessionType = sessionType,
+        unscheduledNames = unscheduled.map { it.name },
+    )
+}
+
+@Composable
+private fun UnitsView(units: List<DashboardClient.Unit>) {
+    if (units.isEmpty()) { EmptyNote("No units in this program yet."); return }
+    // By default show ONLY the units scheduled for TODAY — a coordinator running today's
+    // sessions shouldn't have to wade through units timetabled for other days. A toggle
+    // reveals the full program catalogue when they actually need it.
+    val today = LocalDate.now().dayOfWeek.value   // 1=Mon … 7=Sun
+    var showAll by remember { mutableStateOf(false) }
+    val todays = units.filter { it.dayOfWeek == today }
+    val shown = if (showAll) units else todays
+
+    Column {
+        Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (showAll) "All units" else "Today (${DAYS.getOrElse(today) { "" }})",
+                fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+            TextButton(onClick = { showAll = !showAll }) { Text(if (showAll) "Show today only" else "Show all units", fontSize = 12.sp) }
+        }
+        if (shown.isEmpty()) {
+            EmptyNote("No units scheduled for today. Tap “Show all units” to see the full program.")
+            return@Column
+        }
+        shown.forEach { u ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text(u.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    val sched = if (u.start.isNotBlank()) "${if (u.dayOfWeek in 1..7) DAYS[u.dayOfWeek] + " " else ""}${u.start}" else "—"
+                    Text("${u.unitId} · $sched" + if (u.lecturers.isNotBlank()) " · ${u.lecturers}" else "",
+                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            HorizontalDivider()
+        }
+    }
+}
+
+// Three columns only — Reg No · Name · Status — since year/semester/intake are all the
+// coordinator's own cohort (inherited), so they'd be identical for every row.
+@Composable
+private fun StudentsView(students: List<DashboardClient.Student>) {
+    if (students.isEmpty()) { EmptyNote("No students enrolled in this session yet."); return }
+    Column {
+        Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+            Text("Reg No.", Modifier.weight(1.1f), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Student name", Modifier.weight(1.4f), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Status", Modifier.weight(0.7f), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        HorizontalDivider()
+        students.forEach { s ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
+                Text(s.studentId, Modifier.weight(1.1f), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                Text(s.fullName, Modifier.weight(1.4f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(s.status, Modifier.weight(0.7f), fontSize = 11.sp,
+                    color = if (s.status.equals("ACTIVE", true)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            HorizontalDivider()
+        }
+    }
+}
+
+@Composable
+private fun LastRosterView(last: DashboardClient.LastRoster?) {
+    if (last == null) { EmptyNote("No closed/synced session yet. Close a session to see its roster here."); return }
+    Column {
+        Text("${last.unitName} · ${last.date} · ${last.present}/${last.total} present",
+            fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp))
+        last.roster.forEach { r ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text(r.fullName, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Text(r.studentId, fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(r.status, fontSize = 11.sp,
+                    color = if (r.status.equals("PRESENT", true)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+            }
+            HorizontalDivider()
+        }
+    }
+}
+
+@Composable
+fun StandbyCard(client: DashboardClient, token: String?) {
+    var open by remember { mutableStateOf(false) }
+    var list by remember { mutableStateOf<List<DashboardClient.Standby>>(emptyList()) }
+    var reg by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var err by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    suspend fun reload() { token?.let { list = runCatching { client.standby(it) }.getOrDefault(emptyList()) } }
+    LaunchedEffect(open) { if (open) reload() }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Row(Modifier.fillMaxWidth().clickable { open = !open }, verticalAlignment = Alignment.CenterVertically) {
+                Text("🆘 Emergency standby" + if (list.isNotEmpty()) " · ${list.size} active" else "",
+                    fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text(if (open) "▾" else "▸", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (open) {
+                Spacer(Modifier.height(8.dp))
+                Text("Going to be absent? Authorise a student from your OWN cohort to run the session today. Read them the code — they sign in with the standby code. Valid until end of day.",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                err?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp)) }
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(value = reg, onValueChange = { reg = it }, modifier = Modifier.weight(1f),
+                        placeholder = { Text("Standby student's reg no.") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text))
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            busy = true; err = null
+                            scope.launch {
+                                err = token?.let { client.issueStandby(it, reg.trim()) }
+                                if (err == null) { reg = ""; reload() }
+                                busy = false
+                            }
+                        },
+                        enabled = !busy && reg.isNotBlank(),
+                    ) { Text(if (busy) "…" else "Issue") }
+                }
+                list.forEach { s ->
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(s.code, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                            Text(if (s.deputyName.isNotBlank()) s.deputyName else s.deputyReg,
+                                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        TextButton(onClick = { scope.launch { token?.let { client.revokeStandby(it, s.id) }; reload() } }) { Text("Revoke") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyNote(msg: String) {
+    Text(msg, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp,
+        modifier = Modifier.fillMaxWidth().padding(20.dp))
+}
+
