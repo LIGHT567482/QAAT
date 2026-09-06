@@ -117,9 +117,10 @@ func ExportCoordinatorsXLSX(adminPool *pgxpool.Pool) http.HandlerFunc {
 
 // POST /api/v1/admin/tenants/{tenant_id}/coordinators/import — multipart "roster"
 // (CSV or XLSX). Upserts coordinators by email: existing rows get contact updates;
-// unknown emails create a COORDINATOR account with a random temp password (returned
-// so the admin can hand it out). Columns: full_name, email[, phone, whatsapp,
-// registration_number].
+// unknown emails create a COORDINATOR account seeded to the role's first-login word
+// "coordinator" (returned so the admin can hand it out), force_password_change=true
+// so it must be changed immediately, before the session flow will open. Columns:
+// full_name, email[, phone, whatsapp, registration_number].
 func ImportCoordinators(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID := tenantOf(r)
@@ -221,8 +222,10 @@ func ImportCoordinators(pool *pgxpool.Pool) http.HandlerFunc {
 				continue
 			}
 
-			// Otherwise create a new coordinator with a temp password + code.
-			temp := genCoordinatorCode() + "-" + genCoordinatorCode()[3:] // ~ random
+			// Otherwise create a new coordinator seeded to the shared first-login
+			// word — the role's name. The admin is told it via new_logins below and
+			// hands it to the coordinator, who is forced to replace it on first sign-in.
+			temp := DefaultCoordinatorPassword
 			hash, herr := bcrypt.GenerateFromPassword([]byte(temp), 12)
 			if herr != nil {
 				res.Errors = append(res.Errors, fmt.Sprintf("row %d: hash failed", ln+1))
@@ -232,8 +235,8 @@ func ImportCoordinators(pool *pgxpool.Pool) http.HandlerFunc {
 			code := genCoordinatorCode()
 			_, ierr := pool.Exec(r.Context(), `
 				INSERT INTO users (tenant_id, email, password_hash, role, full_name, is_active,
-				                   coordinator_code, phone, whatsapp, registration_number)
-				VALUES ($1,$2,$3,'COORDINATOR',$4,true,$5, NULLIF($6,''), NULLIF($7,''), NULLIF($8,''))`,
+				                   force_password_change, coordinator_code, phone, whatsapp, registration_number)
+				VALUES ($1,$2,$3,'COORDINATOR',$4,true,true,$5, NULLIF($6,''), NULLIF($7,''), NULLIF($8,''))`,
 				tenantID, email, string(hash), name, code, phone, whatsapp, reg)
 			if ierr != nil {
 				res.Errors = append(res.Errors, fmt.Sprintf("row %d: %s", ln+1, ierr.Error()))
