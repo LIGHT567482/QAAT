@@ -9,8 +9,10 @@ import { useQuery } from '../../lib/useApi'
 // Registration asks for the same things the lecturer form does — title, name, staff id,
 // whatsapp, email — plus the department, exactly as monitored staff are filed under.
 //
-// `department` is required and must be a REAL department (SUPPORT or academic): an employee with
-// no department is a person the no-show report cannot chase.
+// `department` is OPTIONAL, on purpose: the Vice Chancellor, a Deputy Vice Chancellor and other
+// senior offices sit ABOVE the department ladder and belong to none of them. When it IS given it
+// must be a real department (SUPPORT or academic), and the coverage report already labels rows
+// without one as "Unassigned" — so a VC is chased under their office, not made invisible.
 //
 // `office` is where the QA office round starts looking (migration 106). Optional, unlike
 // department — a blank one costs nothing, because the monitor types what they actually found.
@@ -141,19 +143,21 @@ export default function AdminEmployees() {
                 always type what they found, and refusing an employee for want of a door label
                 would block the registry on a fact HR's own file has never carried. */}
             <Input label="Office" value={form.office} onChange={v => setForm(f => ({ ...f, office: v }))} placeholder="Block C, Room 14" />
-            {/* Department is REQUIRED, and every department is offered — the SUPPORT offices and
-                the academic ones alike. Administrators are monitored in the offices they sit in,
-                so a dean's office under a faculty is filed exactly like one under ICT. Saved
-                blank, an employee has no office to chase on the no-show report. */}
+            {/* Department is OPTIONAL: the VC and DVC offices sit above every department, and
+                filing them under one would be a lie. Every real department is still offered —
+                the SUPPORT offices and the academic ones alike — because an administrator in a
+                faculty office is monitored exactly like one in ICT, and when one IS named it
+                must be real (the coverage report groups by it). Blank is a senior office, not
+                an error. */}
             <OrgPicker
               schools={org.schools} departments={org.departments}
               department={form.department} school=""
               onChange={next => setForm(f => ({ ...f, department: next.department }))}
-              showSchool={false} requireDepartment
-              hint="Which department this person works in."
+              showSchool={false}
+              hint="The department this person works in — leave blank for offices above departments (Vice Chancellor, DVC…)."
             />
           </div>
-          <button onClick={handleCreate} disabled={saving || !form.staff_id.trim() || !form.full_name.trim() || !form.department.trim()} style={{ ...btnPrimary, marginTop: 12 }}>
+          <button onClick={handleCreate} disabled={saving || !form.staff_id.trim() || !form.full_name.trim()} style={{ ...btnPrimary, marginTop: 12 }}>
             {saving ? 'Saving…' : 'Save employee'}
           </button>
         </div>
@@ -185,7 +189,7 @@ export default function AdminEmployees() {
                     <input value={editForm.phone} onChange={ev => setEditForm(f => ({ ...f, phone: ev.target.value }))} style={inp} placeholder="phone / email" />
                   </td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>
-                    <button onClick={saveEdit} disabled={!editForm.department.trim()} style={btnSmall}>Save</button>{' '}
+                    <button onClick={saveEdit} style={btnSmall}>Save</button>{' '}
                     <button onClick={() => setEditId(null)} style={btnSmall}>Cancel</button>
                   </td>
                 </tr>
@@ -193,13 +197,10 @@ export default function AdminEmployees() {
                 <tr key={e.employee_pk} style={{ borderTop: '1px solid var(--border)' }}>
                   <td style={{ ...td, fontFamily: 'monospace' }}>{e.staff_id}</td>
                   <td style={td}>{e.title ? `${e.title} ` : ''}{e.full_name}</td>
-                  {/* Records predating the requirement can still be blank; flag them rather than
-                      showing a dash, because a blank one is what breaks the no-show report. */}
-                  <td style={td}>
-                    {e.department
-                      ? e.department
-                      : <span style={{ color: '#b45309', fontSize: 12 }}>not set — edit to assign</span>}
-                  </td>
+                  {/* A missing department is not a defect: the VC and DVC offices sit above every
+                      department. The coverage report labels these "Unassigned"; show the same
+                      word here so a senior office does not read as a mistake. */}
+                  <td style={{ ...td, color: 'var(--muted)' }}>{e.department || 'Unassigned'}</td>
                   {/* A plain dash, not the amber "not set" the department gets: a missing office
                       is not a defect — the monitor types the door they actually knocked at. */}
                   <td style={{ ...td, color: 'var(--muted)' }}>{e.office || '—'}</td>
