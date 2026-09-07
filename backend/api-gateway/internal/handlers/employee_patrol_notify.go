@@ -137,6 +137,15 @@ func officeAbsenceMessage(office, visitDate, visitTime string) (subject, body st
 	return subject, b.String()
 }
 
+// tenantBranding fetches the tenant's display name + email domain in one row. The domain
+// matters: /notify/direct holds no branding today, the notification-service falls back to a
+// qaat.local sender, and most real relays refuse "noreply@qaat.local" out of hand. Best-effort
+// — a transient DB blip just leaves the fallback in place.
+func tenantBranding(r *http.Request, pool *pgxpool.Pool, tenantID string) (name, domain string) {
+	_ = pool.QueryRow(r.Context(), `SELECT COALESCE(name,''), COALESCE(domain,'') FROM tenants WHERE tenant_id=$1`, tenantID).Scan(&name, &domain)
+	return name, domain
+}
+
 // notifyOfficeAbsence claims the day, then sends. Best-effort throughout: a failure here never
 // fails the sync, because the visit is the record that matters and the notice is a courtesy on
 // top of it.
@@ -162,10 +171,12 @@ func notifyOfficeAbsence(r *http.Request, pool *pgxpool.Pool, tenantID, tenantNa
 	}
 
 	subject, body := officeAbsenceMessage(t.Office, t.VisitDate, t.VisitTime)
+	tName, tDomain := tenantBranding(r, pool, tenantID)
 	payload, _ := json.Marshal(map[string]interface{}{
 		"tenant":  tenantName,
 		"subject": subject,
 		"message": body,
+		"branding": map[string]string{"name": tName, "domain": tDomain},
 		"recipients": []map[string]string{{
 			"name": t.Name, "email": t.Email, "phone": t.Phone, "department": t.Department,
 		}},
@@ -208,10 +219,12 @@ func notifyAttendanceTaken(r *http.Request, pool *pgxpool.Pool, tenantID, tenant
 	}
 
 	subject, body := attendanceTakenMessage(t.Office, t.VisitDate, t.VisitTime, status)
+	tName, tDomain := tenantBranding(r, pool, tenantID)
 	payload, _ := json.Marshal(map[string]interface{}{
 		"tenant":  tenantName,
 		"subject": subject,
 		"message": body,
+		"branding": map[string]string{"name": tName, "domain": tDomain},
 		"recipients": []map[string]string{{
 			"name": t.Name, "email": t.Email, "phone": t.Phone, "department": t.Department,
 		}},

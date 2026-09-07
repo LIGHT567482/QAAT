@@ -283,6 +283,15 @@ services:
         sync: false
       - key: SMTP_SECURE
         value: "true"
+      # Sender on every outgoing email. Make it a domain the SMTP relay accepts mail
+      # for (SPF/DKIM), e.g. noreply@kiu.ac.ug — the tenant branding domain is used
+      # when this is blank, and qaat.local (which no real relay accepts) as a last resort.
+      - key: EMAIL_FROM
+        sync: false
+      # Key that unlocks POST /notify/test-send — the "prove the channels deliver" check.
+      # Calls must pass it in the X-Notify-Test-Key header. 503 until set.
+      - key: NOTIFY_TEST_KEY
+        sync: false
       - key: VAPID_PUBLIC_KEY
         sync: false
       - key: VAPID_PRIVATE_KEY
@@ -301,11 +310,15 @@ services:
         sync: false
       - key: TWILIO_AUTH_TOKEN
         sync: false
-      - key: TWILIO_WHATSAPP_FROM
-        sync: false
       - key: META_PHONE_NUMBER_ID
         sync: false
       - key: META_ACCESS_TOKEN
+        sync: false
+      # The sender number alerts appear to come from. Defaults to 0786713144 (QA's
+      # business number) when blank. Change it here, no redeploy, the day the
+      # institution assigns another number — it must be the number registered with
+      # the provider.
+      - key: WHATSAPP_FROM_NUMBER
         sync: false
 
 # ─── Shared env var group ────────────────────────────────────────────────────

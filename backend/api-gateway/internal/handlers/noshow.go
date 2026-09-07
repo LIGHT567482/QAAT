@@ -90,7 +90,9 @@ func notifyURL() string {
 }
 
 // postAbsentees sends the no-shows to the notification-service. Best-effort; returns (emailed?, err).
-func postAbsentees(r *http.Request, list []noShow, tenantName string) error {
+// The tenant DOMAIN (a real domain like kiu.ac.ug) rides in branding so the notification-service
+// can build a valid sender address — a notification from "noreply@qaat" dies on every real relay.
+func postAbsentees(r *http.Request, list []noShow, tenantName, tenantDomain string) error {
 	recips := make([]map[string]string, 0, len(list))
 	for _, n := range list {
 		if n.Email == "" && n.Phone == "" {
@@ -105,7 +107,7 @@ func postAbsentees(r *http.Request, list []noShow, tenantName string) error {
 		"recipients": recips,
 		"subject":    "You have not checked in today",
 		"message":    "Our records show you had not checked in via the biometric scanner by 09:30 today. If this is an error, please contact HR/QA.",
-		"branding":   map[string]string{"name": tenantName, "domain": "qaat"},
+		"branding":   map[string]string{"name": tenantName, "domain": tenantDomain},
 	})
 	req, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, notifyURL()+"/notify/absentees", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
@@ -139,9 +141,9 @@ func NotifyNoShows(adminPool *pgxpool.Pool) http.HandlerFunc {
 			writeJSON(w, http.StatusInternalServerError, errBody("INTERNAL_ERROR", err.Error()))
 			return
 		}
-		var tenantName string
-		_ = adminPool.QueryRow(r.Context(), `SELECT COALESCE(name,'') FROM tenants WHERE tenant_id=$1`, tenantID).Scan(&tenantName)
-		if err := postAbsentees(r, list, tenantName); err != nil {
+		var tenantName, tenantDomain string
+		_ = adminPool.QueryRow(r.Context(), `SELECT COALESCE(name,''), COALESCE(domain,'') FROM tenants WHERE tenant_id=$1`, tenantID).Scan(&tenantName, &tenantDomain)
+		if err := postAbsentees(r, list, tenantName, tenantDomain); err != nil {
 			writeJSON(w, http.StatusBadGateway, errBody("NOTIFY_FAILED", err.Error()))
 			return
 		}
@@ -159,16 +161,16 @@ func CronNotifyNoShows(adminPool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 		date := today()
-		rows, err := adminPool.Query(r.Context(), `SELECT tenant_id::text, COALESCE(name,'') FROM tenants`)
+		rows, err := adminPool.Query(r.Context(), `SELECT tenant_id::text, COALESCE(name,''), COALESCE(domain,'') FROM tenants`)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, errBody("INTERNAL_ERROR", err.Error()))
 			return
 		}
-		type t struct{ id, name string }
+		type t struct{ id, name, domain string }
 		var tenants []t
 		for rows.Next() {
 			var x t
-			if rows.Scan(&x.id, &x.name) == nil {
+			if rows.Scan(&x.id, &x.name, &x.domain) == nil {
 				tenants = append(tenants, x)
 			}
 		}
@@ -180,7 +182,7 @@ func CronNotifyNoShows(adminPool *pgxpool.Pool) http.HandlerFunc {
 			if qerr != nil {
 				continue
 			}
-			_ = postAbsentees(r, list, tn.name)
+			_ = postAbsentees(r, list, tn.name, tn.domain)
 			total += len(list)
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{"date": date, "tenants": len(tenants), "notified": total})
