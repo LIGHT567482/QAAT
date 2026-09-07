@@ -24,7 +24,7 @@ deploy_frontends() {
   bash scripts/sync-brand.sh
   for app in admin-dashboards student-portal; do
     echo "── deploying $app ──"
-    ( cd "frontend/$app" && npm ci && npm run build \
+    ( cd "frontend/$app" && pnpm install --frozen-lockfile && pnpm build \
         && npx --yes vercel@latest deploy --prod --yes --token="$VERCEL_TOKEN" )
   done
 }
