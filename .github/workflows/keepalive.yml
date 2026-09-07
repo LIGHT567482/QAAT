@@ -1,16 +1,17 @@
 # ── keepalive ────────────────────────────────────────────────────────────────
-# Ping Render's free-tier gateway + auth health endpoints every 5 minutes so they
-# never sleep and real login requests don't cold-start.
+# Keep ALL FIVE Render free-tier web instances from ever sleeping — gateway, auth,
+# session, sync and notify — so no request path (login, warden validation, sync
+# upload, no-show/office-round notifications) cold-starts behind its proxy into a
+# ~30s-timeout 502.
 #
-# Render's free web instances sleep after ~15 minutes of idle. The login path
-# (gateway → auth-service → Postgres/Redis) has *three* cold-start hops; when the
-# proxy at the front times out first, users see HTTP 502.  The two /health routes
-# are deliberately shallow — they answer without touching the database — so waking
-# them costs nothing.
+# scripts/keepalive.sh pings each /health every run and RETRIES a 502/503 until the
+# instance confirms 200, so a late-scheduled run still catches whatever fell asleep
+# and warms it instead of merely poking once. A run ends red (GitHub mails the owner)
+# when an instance cannot be confirmed warm or answers something unexpected.
 #
-# GitHub Actions schedule: cron runs on the default branch (main) only.
-# cadence is */5; there is a soft ±15-minute jitter on busy repos, which is still
-# well inside the 15-minute sleep window.
+# Render's free web instances sleep after ~15 minutes of idle. GitHub schedules this
+# every 5 minutes; even with scheduling jitter, the retry-until-warm logic absorbs it.
+# For extra belt-and-braces run scripts/keepalive.sh --loop 300 on any always-on box.
 
 name: keepalive
 
@@ -22,11 +23,11 @@ on:
 jobs:
   warm:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
 
-      - name: Ping gateway + auth
+      - name: Warm + confirm all five instances
         run: bash scripts/keepalive.sh
 
       - name: Log endpoint list (for visibility in the Actions run)
