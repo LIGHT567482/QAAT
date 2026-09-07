@@ -469,6 +469,49 @@ func PatrolManualEntry(pool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 
+		// The same two alerts the round writes for a timetabled slot, so an off-timetable
+		// manual verdict is heard exactly as loud: the lecturer's in-app inbox (with the
+		// appeal pointed at this exact lecture when the record is NOT TAUGHT), and the
+		// outbound email/WhatsApp copy — one letter per slot, claimed on notification_log
+		// (patrol_absent_notify.go). Best-effort throughout: the record is already committed,
+		// and a failed courtesy must not fail this response.
+		var tenantName string
+		_ = pool.QueryRow(r.Context(),
+			`SELECT COALESCE(name,'') FROM tenants WHERE tenant_id = $1`, tenantID).Scan(&tenantName)
+
+		var lecUser, lecEmail, lecPhone string
+		_ = conn.QueryRow(r.Context(), `
+			SELECT COALESCE(l.user_id::text,''),
+			       COALESCE(NULLIF(btrim(l.email),''), u.email, ''),
+			       COALESCE(NULLIF(btrim(l.phone),''), u.phone, '')
+			  FROM lecturers l
+			  LEFT JOIN users u ON u.user_id = l.user_id
+			 WHERE l.tenant_id = $1 AND btrim(lower(l.staff_id)) = btrim(lower($2)) AND $2 <> ''`,
+			tenantID, lecturerKey).Scan(&lecUser, &lecEmail, &lecPhone)
+		patrolLog := patrolLogIn{
+			LecturerID:    lecturerKey,
+			UnitID:        unitID,
+			UnitName:      unitName,
+			CourseCode:    courseCode,
+			Room:          room,
+			SessionDate:   sessionDate,
+			ScheduledTime: observedAt,
+			Taught:        req.Taught,
+		}
+		if lecUser != "" {
+			subject, bodyTxt := verdictMessage(patrolLog)
+			action, actionRef := "", ""
+			if !req.Taught {
+				action = "APPEAL_NOT_TAUGHT"
+				actionRef = unitID + "|" + sessionDate + "|" + observedAt
+			}
+			insertPatrolAlert(r, conn, tenantID, subject, bodyTxt, action, actionRef, lecUser)
+		}
+		if !req.Taught {
+			notifyPatrolAbsentEmail(r, pool, tenantID, tenantName, patrolLog,
+				lecUser, lecturerName, lecEmail, lecPhone)
+		}
+
 		// ── The other units this same hour covered ──────────────────────────────────────────
 		//
 		// Replaced, not merged. Re-filing the same lecture (the ON CONFLICT above updates rather
