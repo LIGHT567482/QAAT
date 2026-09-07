@@ -90,6 +90,7 @@ func setupTestServer(t *testing.T) (*httptest.Server, *pgxpool.Pool, *redis.Clie
 	r.Post("/api/v1/auth/login",   h.Login)
 	r.Post("/api/v1/auth/refresh", h.Refresh)
 	r.Post("/api/v1/auth/logout",  h.Logout)
+	r.Post("/api/v1/auth/change-password", h.ChangePassword)
 
 	srv := httptest.NewServer(r)
 	t.Cleanup(func() { srv.Close(); pool.Close(); rdb.Close() })
@@ -311,7 +312,137 @@ func TestLogin_StaffIsNotLockedOutAfter5Failures(t *testing.T) {
 	}
 }
 
+// doLoginWithPassword is a variant of doLogin that accepts a caller-supplied password, used by
+// tests that exercise the password-change flow (login → change → re-login with new pw).
+func doLoginWithPassword(t *testing.T, srv *httptest.Server, email, tenantID, password string) *http.Response {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{
+		"email": email, "password": password, "tenant_id": tenantID,
+	})
+	resp, err := http.Post(srv.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("login request: %v", err)
+	}
+	return resp
+}
+
+// insertUserWithRoleAndTOTP creates a user whose TOTP material is encrypted under the hash of
+// the given password — exactly the state an EnrollMFA/VerifyMFA path produces. The caller
+// supplies the synthetic TOTP secret directly; we cannot generate a real one here without
+// touching pquerna, and it is not needed: the property under test is the AES-GCM key rotation.
+func insertUserWithRoleAndTOTP(t *testing.T, pool *pgxpool.Pool, email, tenantID, role, password, totpSecret string) {
+	t.Helper()
+	hash, _ := bcrypt.GenerateFromPassword([]byte(password), 12)
+	enc, err := crypto.EncryptSecret(totpSecret, string(hash))
+	if err != nil {
+		t.Fatalf("encrypt TOTP secret: %v", err)
+	}
+	_, err = pool.Exec(context.Background(), `
+		INSERT INTO users (email, password_hash, role, full_name, tenant_id, is_active,
+		                   totp_secret_enc, totp_enabled, totp_backup_codes_enc)
+		VALUES ($1, $2, $4::user_role_enum, 'Test User', $3, true, $5, true, '')
+		ON CONFLICT (tenant_id, email) DO NOTHING`,
+		email, string(hash), tenantID, role, enc)
+	if err != nil {
+		t.Fatalf("insert user with TOTP (%s): %v", role, err)
+	}
+}
+
+// TestChangePassword_RotatesTOTPKey is the integration end-to-end for the fix to the bug
+// where changing password while TOTP was enrolled left totp_secret_enc encrypted under the
+// OLD hash. The next MFA-bound login (VC / DQA DIRECTOR, DISABLE_MFA=false in prod) then
+// failed to decrypt the secret and the account was bricked by the very act that should have
+// made it safer. The handler now decrypts under the old hash and re-encrypts under the new
+// one in the same statement as the hash write; this test proves the invariant holds.
+//
+// The test server runs with DISABLE_MFA=true (a test-server convenience), so MFA is not
+// gated during Login itself; but the invariant is the row, not the login flow, and we
+// read and decrypt the row directly to prove the key rotated.
+func TestChangePassword_RotatesTOTPKey(t *testing.T) {
+	srv, pool, _ := setupTestServer(t)
+
+	const (
+		email   = "t_mfa_rotate@alpha.edu"
+		totpSec = "JBSWY3DPEHPK3PXP"
+		newPW   = "NewSecurePass123!"
+	)
+
+	insertUserWithRoleAndTOTP(t, pool, email, testTenantA, "VC", testPW, totpSec)
+
+	// 1. Login with the old password to obtain a bearer token.
+	loginResp := doLogin(t, srv, email, testTenantA)
+	var loginData map[string]interface{}
+	json.NewDecoder(loginResp.Body).Decode(&loginData) //nolint:errcheck
+	loginResp.Body.Close()
+	token := loginData["access_token"].(string)
+
+	// 2. Change password → newPW. This must re-encrypt totp_secret_enc under the new hash.
+	changeBody, _ := json.Marshal(map[string]string{
+		"current_password": testPW,
+		"new_password":     newPW,
+	})
+	changeReq, _ := http.NewRequest("POST", srv.URL+"/api/v1/auth/change-password", bytes.NewReader(changeBody))
+	changeReq.Header.Set("Authorization", "Bearer "+token)
+	changeReq.Header.Set("Content-Type", "application/json")
+	changeResp, err := http.DefaultClient.Do(changeReq)
+	if err != nil {
+		t.Fatalf("change-password request: %v", err)
+	}
+	changeResp.Body.Close()
+	if changeResp.StatusCode != http.StatusOK {
+		t.Fatalf("change-password returned %d (expected 200); MFA user is now bricked", changeResp.StatusCode)
+	}
+
+	// 3. Verify the row directly: read the new hash and the re-encrypted secret.
+	var storedHash, storedEnc string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT password_hash, totp_secret_enc FROM users WHERE email=$1 AND tenant_id=$2`,
+		email, testTenantA,
+	).Scan(&storedHash, &storedEnc); err != nil {
+		t.Fatalf("read user row: %v", err)
+	}
+
+	// The new hash must be different from the old one.
+	if storedHash == string(hashOf(t, testPW)) {
+		t.Fatal("password hash was not updated — change-password did not write")
+	}
+
+	// The TOTP secret must decrypt under the NEW hash.
+	plain, err := crypto.DecryptSecret(storedEnc, storedHash)
+	if err != nil {
+		t.Fatalf("TOTP secret failed to decrypt under the new password hash: %v (MFA is bricked)", err)
+	}
+	if plain != totpSec {
+		t.Errorf("TOTP secret mismatch: got %q, want %q", plain, totpSec)
+	}
+
+	// And must NOT decrypt under the OLD hash — proves the key rotated.
+	oldHash := string(hashOf(t, testPW))
+	if _, err := crypto.DecryptSecret(storedEnc, oldHash); err == nil {
+		t.Error("TOTP secret should NOT decrypt under the old password hash after a change — the key leaked across rotations")
+	}
+
+	// 4. Re-login with the new password succeeds.
+	reLogin := doLoginWithPassword(t, srv, email, testTenantA, newPW)
+	reLogin.Body.Close()
+	if reLogin.StatusCode != http.StatusOK {
+		t.Errorf("re-login with new password returned %d (expected 200) — password change itself failed", reLogin.StatusCode)
+	}
+}
+
 // ─── Key loading helpers ──────────────────────────────────────────────────────
+
+// hashOf returns the bcrypt hash the test would store for password pw. It is derived
+// fresh each call because bcrypt salts, and that is fine: the test only needs a value
+// to compare stored hashes against and to decrypt TOTP material encrypted by insert.
+func hashOf(t *testing.T, pw string) []byte {
+	t.Helper()
+	h, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	return h
+}
 
 func loadPrivKey(path string) (*rsa.PrivateKey, error) {
 	data, err := os.ReadFile(path)

@@ -168,6 +168,29 @@ func (s *UserStore) UpdatePassword(ctx context.Context, userID string, passwordH
 	return err
 }
 
+// UpdatePasswordWithTOTP changes the password hash AND rotates the TOTP material's
+// encryption key to the NEW hash, in one statement so the two can never drift apart.
+//
+// The TOTP secret and backup codes are encrypted under SHA256(<bcrypt hash>) — the
+// CURRENT hash — at EnrollMFA/VerifyMFA write time and decrypted with the CURRENT hash
+// at Login. If only password_hash were written, the next MFA-bound login (VC / DQA
+// DIRECTOR) would fail to decrypt them and the account would be bricked: the person
+// changed their password and could no longer sign in. The caller therefore decrypts
+// both values under the OLD hash and passes in fresh re-encryptions; a NULL keeps
+// whatever is stored (no TOTP material, or one that was already unrecoverable).
+func (s *UserStore) UpdatePasswordWithTOTP(ctx context.Context, userID, passwordHash string, totpSecretEnc, totpBackupEnc *string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users SET
+		         password_hash = $1,
+		         totp_secret_enc = COALESCE($3, totp_secret_enc),
+		         totp_backup_codes_enc = COALESCE($4, totp_backup_codes_enc),
+		         failed_login_count = 0, locked_until = NULL,
+		         force_password_change = false, updated_at = now()
+		 WHERE user_id = $2`,
+		passwordHash, userID, totpSecretEnc, totpBackupEnc)
+	return err
+}
+
 func (s *UserStore) GetByID(ctx context.Context, userID string) (*models.User, error) {
 	const q = `
 		SELECT user_id, tenant_id, email, password_hash, role, full_name,

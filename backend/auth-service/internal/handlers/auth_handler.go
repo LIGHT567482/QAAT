@@ -82,7 +82,39 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "password hashing failed")
 		return
 	}
-	if err := h.users.UpdatePassword(r.Context(), user.UserID, string(hash)); err != nil {
+
+	// ROTATE THE TOTP KEY ALONGSIDE THE PASSWORD. The TOTP secret and backup codes are
+	// encrypted with SHA256(<the account's bcrypt hash>), and Login decrypts them with
+	// whatever hash is CURRENTLY stored. Change the hash without re-encrypting them and
+	// the next MFA-bound sign-in (VC / DQA DIRECTOR) cannot open the secret: the account
+	// is bricked by exactly the action that should make it safer. Decrypt both under the
+	// old hash and re-encrypt under the new one, in the same statement as the hash write.
+	//
+	// A value that will not decrypt was already unrecoverable BEFORE this change (the old
+	// password hash cannot open it either) — log and carry on changing the password; a
+	// NULL re-encryption tells the store to leave that column untouched.
+	var encSecret, encBackup *string
+	if user.TOTPSecretEnc != nil && *user.TOTPSecretEnc != "" {
+		if secret, derr := crypto.DecryptSecret(*user.TOTPSecretEnc, user.PasswordHash); derr == nil {
+			if enc, eerr := crypto.EncryptSecret(secret, string(hash)); eerr == nil {
+				encSecret = &enc
+			}
+		} else {
+			slog.Warn("change-password: stored TOTP secret is already undecryptable under the current hash",
+				"user_id", user.UserID, "error", derr)
+		}
+	}
+	if user.TOTPBackupCodesEnc != nil && *user.TOTPBackupCodesEnc != "" {
+		if codes, derr := crypto.DecryptSecret(*user.TOTPBackupCodesEnc, user.PasswordHash); derr == nil {
+			if enc, eerr := crypto.EncryptSecret(codes, string(hash)); eerr == nil {
+				encBackup = &enc
+			}
+		} else {
+			slog.Warn("change-password: stored TOTP backup codes are already undecryptable under the current hash",
+				"user_id", user.UserID, "error", derr)
+		}
+	}
+	if err := h.users.UpdatePasswordWithTOTP(r.Context(), user.UserID, string(hash), encSecret, encBackup); err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "could not update password")
 		return
 	}
