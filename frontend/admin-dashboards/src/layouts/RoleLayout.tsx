@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import DashboardWelcome from '../components/DashboardWelcome'
 import { useAuth, type Role } from '../contexts/AuthContext'
@@ -355,7 +356,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
     finally { setBusy(false) }
   }
 
-  return (
+  return createPortal(
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface,#fff)', color: 'var(--text,#0f172a)', borderRadius: 12, padding: 24, width: 360 }}>
         <h3 style={{ margin: '0 0 16px' }}>Change password</h3>
@@ -377,7 +378,8 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 const pwInp: React.CSSProperties = { width: '100%', padding: '10px', borderRadius: 6, border: '1px solid var(--border,#e2e8f0)', fontSize: 14, marginBottom: 10, boxSizing: 'border-box', background: 'var(--surface,#fff)', color: 'var(--text,#0f172a)' }
