@@ -90,6 +90,27 @@ services:
         value: "8443"
       - key: ENVIRONMENT
         value: production
+      # ── keepalive warm loop ──────────────────────────────────────────────
+      # The gateway pings itself and every sibling's /health on this interval so the
+      # free-plan instances never sit idle for the ~15 min that puts them to sleep —
+      # a sleeping service behind the proxy cold-starts into a 502 mid-request, which
+      # is the "server is not answering properly" the dashboards showed. The loop is
+      # unconditional from inside the process (no cron, nothing external can break it)
+      # and covers auth/session/sync/notify automatically from their service URLs.
+      # Disable with value "false" if the services ever move to a plan that doesn't sleep.
+      - key: WARM_ENABLED
+        value: "true"
+      - key: WARM_INTERVAL_SECONDS
+        value: "240"
+      # The gateway's OWN public health URL — warming it is what keeps the front door from
+      # being the cold one, since every request to every sibling passes through it. Leave
+      # blank and the loop warms only the four siblings (self stays idle-able).
+      - key: WARM_SELF_URL
+        value: https://kiu-qaat-gateway.onrender.com/api/v1/health
+      # Optional explicit sibling health list. When blank the loop derives each sibling's
+      # /health from AUTH/SESSION/SYNC/NOTIFICATION service URLs below.
+      - key: WARM_SIBLING_URLS
+        value: ""
       - key: ADMIN_DB_URL          # privileged owner role (cross-tenant admin handlers)
         fromDatabase:
           name: qaat-postgres

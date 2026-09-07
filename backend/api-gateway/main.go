@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/qaat/api-gateway/internal/clock"
 	"github.com/qaat/api-gateway/internal/config"
 	"github.com/qaat/api-gateway/internal/jobs"
+	"github.com/qaat/api-gateway/internal/keepalive"
 	"github.com/qaat/api-gateway/internal/router"
 	"github.com/qaat/api-gateway/internal/scheduler"
 )
@@ -142,6 +144,32 @@ func main() {
 	jobs.RegisterEmployeeJobs(sched, adminPool)
 	sched.Start(context.Background())
 	defer sched.Stop()
+
+	// ─── keepalive warm loop ──────────────────────────────────────────────────
+	// The gateway keeps ITSELF and every sibling public service awake by pinging
+	// their /health endpoints on a timer (see internal/keepalive). This is what
+	// stops the free-tier instances from sleeping into a 502 mid-request: while
+	// the gateway is up, nothing in the stack idles out. Production (render.yaml)
+	// sets WARM_ENABLED=true; local dev is left with it off so a laptop running the
+	// compose stack doesn't ping the real prod instances.
+	warmSiblings := cfg.WarmSiblingURLs
+	if len(warmSiblings) == 0 {
+		// Derive each sibling's health URL from the configured service URLs. Render
+		// addresses them by their public onrender.com URLs (free tier has no private
+		// service type), and every sibling answers GET /health.
+		for _, base := range []string{cfg.AuthServiceURL, cfg.SessionManagerURL, cfg.SyncReceiverURL, cfg.NotificationURL} {
+			if base == "" {
+				continue
+			}
+			warmSiblings = append(warmSiblings, strings.TrimRight(base, "/")+"/health")
+		}
+	}
+	keepalive.Start(context.Background(), logger, keepalive.Targets{
+		Self:     cfg.WarmSelfURL,
+		Siblings: warmSiblings,
+		Interval: time.Duration(cfg.WarmIntervalSeconds) * time.Second,
+		Disabled: !cfg.WarmEnabled,
+	})
 
 	// ─── Server ───────────────────────────────────────────────────────────────
 	srv := &http.Server{
