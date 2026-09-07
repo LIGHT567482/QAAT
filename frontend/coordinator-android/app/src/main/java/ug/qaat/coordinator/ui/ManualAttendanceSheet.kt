@@ -58,6 +58,10 @@ fun ManualAttendanceSheet(onDismiss: () -> Unit, onRecorded: (String) -> Unit) {
     var classGroup by remember { mutableStateOf("") }
     var school by remember { mutableStateOf("") }
     var department by remember { mutableStateOf("") }
+    // "" while the school/department was typed or inherited, the exact name while it matches a
+    // known list entry — what PickOrType uses to say "from the list" rather than "typed".
+    var schoolId by remember { mutableStateOf("") }
+    var departmentId by remember { mutableStateOf("") }
     var students by remember { mutableStateOf("") }
     var taught by remember { mutableStateOf(true) }
     var remarks by remember { mutableStateOf("") }
@@ -81,9 +85,18 @@ fun ManualAttendanceSheet(onDismiss: () -> Unit, onRecorded: (String) -> Unit) {
         loading = false
     }
 
+    // The school/college field's pick-list; a department entry already knows its college (`extra`).
+    val schoolOptions = remember(ref.schools) { ref.schools.map { RefItem(it, it) } }
+
+    // A value only counts as "from the list" when it EXACTLY matches a known entry — a college
+    // inherited from a course that spells it differently must not read as a pick the monitor made.
+    fun knownId(options: List<RefItem>, value: String): String =
+        options.firstOrNull { it.label.equals(value.trim(), true) && value.isNotBlank() }?.label.orEmpty()
+
     // Picking a unit carries its cohort and college across, so the two fields the monitor would
     // otherwise have to know off by heart arrive filled in — still editable, because the whole
-    // point of this form is the case where the curriculum is not the last word.
+    // point of this form is the case where the curriculum is not the last word. A unit whose own
+    // college is blank still names its department, and that department still names its college.
     fun chooseUnit(item: RefItem?) {
         unitId = item?.id.orEmpty()
         unitText = item?.label.orEmpty()
@@ -91,9 +104,35 @@ fun ManualAttendanceSheet(onDismiss: () -> Unit, onRecorded: (String) -> Unit) {
             if (classGroup.isBlank()) classGroup = cg
             if (school.isBlank()) school = sch
         }
-        ref.unitDepartments[unitId]?.takeIf { it.isNotBlank() }?.let {
-            if (department.isBlank()) department = it
+        ref.unitDepartments[unitId]?.takeIf { it.isNotBlank() }?.let { dept ->
+            if (department.isBlank()) {
+                department = dept
+                if (school.isBlank()) {
+                    school = ref.departments.firstOrNull { it.label.equals(dept, true) }?.extra.orEmpty()
+                }
+            }
         }
+        departmentId = knownId(ref.departments, department)
+        schoolId = knownId(schoolOptions, school)
+    }
+
+    // Picking a lecturer brings his department and home college across for the same reason — both
+    // sit in the registry (lecturers.department and lecturers.school_id) and the monitor should
+    // not retype what the system knows. Fills only while blank, and the college may still come via
+    // the department when the lecturer's own record carries no school.
+    fun chooseLecturer(item: RefItem?) {
+        lecturerId = item?.id.orEmpty()
+        lecturerText = item?.label.orEmpty()
+        val dept = item?.extra.orEmpty()
+        if (dept.isNotBlank() && department.isBlank()) department = dept
+        if (school.isBlank()) {
+            school = if (lecturerId.isNotBlank()) ref.lecturerSchools[lecturerId].orEmpty() else ""
+            if (school.isBlank()) {
+                school = ref.departments.firstOrNull { it.label.equals(department, true) }?.extra.orEmpty()
+            }
+        }
+        departmentId = knownId(ref.departments, department)
+        schoolId = knownId(schoolOptions, school)
     }
 
     // Every college and department this one lecture belongs to, each named ONCE. Two unit codes in
@@ -149,7 +188,7 @@ fun ManualAttendanceSheet(onDismiss: () -> Unit, onRecorded: (String) -> Unit) {
             PickOrType(
                 label = "Lecturer", options = ref.lecturers,
                 selectedId = lecturerId, typed = lecturerText,
-                onPick = { lecturerId = it?.id.orEmpty(); lecturerText = it?.label.orEmpty() },
+                onPick = { chooseLecturer(it) },
                 onType = { lecturerText = it; lecturerId = "" },
             )
             OutlinedTextField(
@@ -158,24 +197,30 @@ fun ManualAttendanceSheet(onDismiss: () -> Unit, onRecorded: (String) -> Unit) {
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
                 singleLine = true, modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
-                value = school, onValueChange = { school = it },
-                label = { Text("School / College") },
-                supportingText = {
-                    Text(
-                        if (unitId.isNotBlank()) "Taken from the course unit — change it if it is wrong."
-                        else "No unit picked, so type the college."
-                    )
-                },
-                singleLine = true, modifier = Modifier.fillMaxWidth(),
+            PickOrType(
+                label = "School / College", options = schoolOptions,
+                selectedId = schoolId, typed = school,
+                note = if (unitId.isNotBlank() || lecturerId.isNotBlank())
+                    "Taken from the unit or lecturer you picked — change it if it is wrong."
+                else "Pick the college, or type it if it is not listed.",
+                onPick = { s -> if (s != null) { school = s.label; schoolId = s.id } },
+                onType = { school = it; schoolId = "" },
             )
-            OutlinedTextField(
-                value = department, onValueChange = { department = it },
-                label = { Text("Department") },
-                supportingText = {
-                    Text("Two codes for one lecture usually share a college and differ by department.")
+            PickOrType(
+                label = "Department", options = ref.departments,
+                selectedId = departmentId, typed = department,
+                note = "Picking one brings its college — two codes for a lecture usually " +
+                    "share a college and differ by department.",
+                onPick = { d ->
+                    if (d != null) {
+                        department = d.label; departmentId = d.id
+                        if (school.isBlank()) {
+                            school = d.extra.orEmpty()
+                            schoolId = knownId(schoolOptions, school)
+                        }
+                    }
                 },
-                singleLine = true, modifier = Modifier.fillMaxWidth(),
+                onType = { department = it; departmentId = "" },
             )
 
             // ── The other unit codes this same hour delivers ────────────────────────────────
@@ -312,6 +357,7 @@ private fun PickOrType(
     typed: String,
     onPick: (RefItem?) -> Unit,
     onType: (String) -> Unit,
+    note: String? = null,
 ) {
     var open by remember { mutableStateOf(false) }
     val matches = remember(typed, options) {
@@ -330,11 +376,12 @@ private fun PickOrType(
                 singleLine = true,
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = open) },
                 supportingText = {
-                    Text(
-                        if (selectedId.isNotBlank()) "From the list: $selectedId"
-                        else if (typed.isNotBlank()) "Typed — not on the list, which is allowed"
-                        else "Choose one, or type it"
-                    )
+                    val origin = when {
+                        selectedId.isNotBlank() -> "From the list: $selectedId"
+                        typed.isNotBlank() -> "Typed — not on the list, which is allowed"
+                        else -> "Choose one, or type it"
+                    }
+                    Text(listOfNotNull(origin, note).joinToString("  ·  "))
                 },
                 modifier = Modifier.fillMaxWidth().menuAnchor(),
             )

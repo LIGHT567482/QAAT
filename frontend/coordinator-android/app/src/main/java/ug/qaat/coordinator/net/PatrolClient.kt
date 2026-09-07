@@ -238,13 +238,23 @@ class PatrolClient {
             RefItem(x.optString("unit_id"), x.optString("unit_name").ifBlank { x.optString("unit_id") },
                 x.optString("course_id"))
         }
+        // A picked lecturer carries his department (in the option's `extra`) and his home
+        // college (in the map) — so the monitor does not type what the registry knows.
+        val lecturerSchools = mutableMapOf<String, String>()
         val lecturers = (0 until arr("lecturers").length()).map {
             val x = arr("lecturers").getJSONObject(it)
+            lecturerSchools[x.optString("staff_id")] = x.optString("school")
             RefItem(x.optString("staff_id"), x.optString("full_name").ifBlank { x.optString("staff_id") },
                 x.optString("department"))
         }
         val schools = (0 until arr("schools").length()).map { arr("schools").getString(it) }
-        PatrolReference(rooms, units, lecturers, schools, defaults, depts)
+        // The DEPARTMENT list, each entry knowing the college it hangs under — picking one fills
+        // both, and typing one stays allowed on the same terms as every other field.
+        val departments = (0 until arr("departments").length()).map {
+            val x = arr("departments").getJSONObject(it)
+            RefItem(x.optString("name"), x.optString("name"), x.optString("school"))
+        }
+        PatrolReference(rooms, units, lecturers, schools, departments, lecturerSchools, defaults, depts)
     }
 
     /**
@@ -405,6 +415,12 @@ data class PatrolReference(
     val units: List<RefItem> = emptyList(),
     val lecturers: List<RefItem> = emptyList(),
     val schools: List<String> = emptyList(),
+    /** The DEPARTMENT list, each option knowing (`extra`) the college it hangs under — so the
+     *  department field is pick-or-type too, and picking one brings its college. */
+    val departments: List<RefItem> = emptyList(),
+    /** staff_id → the lecturer's home college (lecturers.school_id), so a picked lecturer
+     *  fills the college without the monitor typing what the registry already knows. */
+    val lecturerSchools: Map<String, String> = emptyMap(),
     /** unit_id → the class/group and college the curriculum already knows, so picking a unit
      *  fills them in and the monitor is not asked to retype what the system has. */
     val unitDefaults: Map<String, Pair<String, String>> = emptyMap(),

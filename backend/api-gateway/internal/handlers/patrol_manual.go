@@ -58,6 +58,13 @@ func PatrolReference(pool *pgxpool.Pool) http.HandlerFunc {
 		StaffID    string `json:"staff_id"`
 		FullName   string `json:"full_name"`
 		Department string `json:"department"`
+		// The lecturer's home college (lecturers.school_id, migration 075) — so picking a
+		// lecturer can fill the college without the monitor typing what the registry knows.
+		School string `json:"school"`
+	}
+	type dept struct {
+		Name   string `json:"name"`
+		School string `json:"school"`
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -108,13 +115,15 @@ func PatrolReference(pool *pgxpool.Pool) http.HandlerFunc {
 
 		lecturers := []lecturer{}
 		if rows, e := conn.Query(r.Context(), `
-			SELECT COALESCE(l.staff_id,''), COALESCE(l.full_name,''), COALESCE(l.department,'')
+			SELECT COALESCE(l.staff_id,''), COALESCE(l.full_name,''), COALESCE(l.department,''),
+			       COALESCE(s.name,'')
 			  FROM lecturers l
+			  LEFT JOIN schools s ON s.school_id = l.school_id AND s.tenant_id = l.tenant_id
 			 WHERE l.tenant_id = $1 AND COALESCE(l.staff_id,'') <> ''
 			 ORDER BY l.full_name`, tenantID); e == nil {
 			for rows.Next() {
 				var x lecturer
-				if rows.Scan(&x.StaffID, &x.FullName, &x.Department) == nil {
+				if rows.Scan(&x.StaffID, &x.FullName, &x.Department, &x.School) == nil {
 					lecturers = append(lecturers, x)
 				}
 			}
@@ -133,8 +142,28 @@ func PatrolReference(pool *pgxpool.Pool) http.HandlerFunc {
 			rows.Close()
 		}
 
+		// The DEPARTMENT list, each with the college it hangs under — so the field is pick-or-type
+		// too, and picking one brings its college. SUPPORT departments carry no college (migration
+		// 066) and the empty string is a fact, not a gap.
+		departments := []dept{}
+		if rows, e := conn.Query(r.Context(), `
+			SELECT COALESCE(d.name,''), COALESCE(s.name,'')
+			  FROM departments d
+			  LEFT JOIN schools s ON s.school_id = d.school_id AND s.tenant_id = d.tenant_id
+			 WHERE d.tenant_id = $1 AND COALESCE(d.name,'') <> ''
+			 ORDER BY d.name`, tenantID); e == nil {
+			for rows.Next() {
+				var x dept
+				if rows.Scan(&x.Name, &x.School) == nil {
+					departments = append(departments, x)
+				}
+			}
+			rows.Close()
+		}
+
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"rooms": rooms, "units": units, "lecturers": lecturers, "schools": schools,
+			"rooms": rooms, "units": units, "lecturers": lecturers,
+			"schools": schools, "departments": departments,
 		})
 	}
 }
@@ -390,12 +419,27 @@ func PatrolManualEntry(pool *pgxpool.Pool) http.HandlerFunc {
 
 		lecturerKey, lecturerName := req.LecturerStaffID, req.LecturerName
 		if lecturerKey != "" {
-			var n, dept string
-			if conn.QueryRow(r.Context(),
-				`SELECT COALESCE(full_name,''), COALESCE(department,'') FROM lecturers
-				  WHERE tenant_id = $1 AND btrim(lower(staff_id)) = btrim(lower($2)) LIMIT 1`,
-				tenantID, lecturerKey).Scan(&n, &dept) == nil && n != "" && lecturerName == "" {
-				lecturerName = n
+			// A PICKED lecturer brings his department and college with him — the two fields the
+			// form used to make the monitor type, both of which already exist in the registry
+			// (lecturers.department; lecturers.school_id → schools, migration 075). Inherited
+			// only while blank, exactly like the unit's inheritance above: what a monitor
+			// deliberately typed or corrected wins, and a unit's college already won before this.
+			var n, ldept, sch string
+			if conn.QueryRow(r.Context(), `
+				SELECT COALESCE(l.full_name,''), COALESCE(l.department,''), COALESCE(s.name,'')
+				  FROM lecturers l
+				  LEFT JOIN schools s ON s.school_id = l.school_id AND s.tenant_id = l.tenant_id
+				 WHERE l.tenant_id = $1 AND btrim(lower(l.staff_id)) = btrim(lower($2)) LIMIT 1`,
+				tenantID, lecturerKey).Scan(&n, &ldept, &sch) == nil && n != "" {
+				if lecturerName == "" {
+					lecturerName = n
+				}
+				if department == "" {
+					department = ldept
+				}
+				if school == "" {
+					school = sch
+				}
 			}
 		} else {
 			// Typed name with no staff id: file it under the name so the reports still group the
@@ -403,6 +447,21 @@ func PatrolManualEntry(pool *pgxpool.Pool) http.HandlerFunc {
 			lecturerKey = lecturerName
 			if len(lecturerKey) > 50 {
 				lecturerKey = lecturerKey[:50]
+			}
+		}
+
+		// A known DEPARTMENT still names its college, so even a department that was only typed is
+		// completed with the school the org tree already owns. A SUPPORT department legitimately
+		// has none (migration 066), so a blank result here is a fact, not a gap to invent.
+		if school == "" && department != "" {
+			var sch string
+			if conn.QueryRow(r.Context(), `
+				SELECT COALESCE(s.name,'')
+				  FROM departments d
+				  LEFT JOIN schools s ON s.school_id = d.school_id AND s.tenant_id = d.tenant_id
+				 WHERE d.tenant_id = $1 AND btrim(lower(d.name)) = btrim(lower($2)) LIMIT 1`,
+				tenantID, department).Scan(&sch) == nil && sch != "" {
+				school = sch
 			}
 		}
 
