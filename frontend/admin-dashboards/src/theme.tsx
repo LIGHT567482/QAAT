@@ -75,7 +75,11 @@ export function getInitialTheme(): Theme {
     const saved = localStorage.getItem(KEY)
     if (saved === 'light' || saved === 'dark') return saved
   } catch { /* ignore */ }
-  return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  // Default to LIGHT unconditionally. The QAAT deployment is a light-first product
+  // (printed Excel/PDF reports, hallway-kiosk and projector use); honoring the OS
+  // "dark mode" preference here made half the institution default to a theme the
+  // printed artifacts don't match. Users may still opt into dark mode explicitly.
+  return 'light'
 }
 
 // The per-region brand palette a tenant can configure. Each is an optional hex;

@@ -67,7 +67,10 @@ export function getInitialTheme(): Theme {
     const saved = localStorage.getItem(KEY)
     if (saved === 'light' || saved === 'dark') return saved
   } catch { /* ignore */ }
-  return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  // Default to LIGHT unconditionally. Students check in off reg-no on in-room kiosks
+  // and hallway screens in bright rooms; the OS "dark mode" preference made those
+  // flash dark first paint. Users may still opt into dark mode explicitly.
+  return 'light'
 }
 
 // The per-region brand palette a tenant can configure. Each is an optional hex;
