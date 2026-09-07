@@ -490,12 +490,6 @@ func PatrolSync(pool *pgxpool.Pool) http.HandlerFunc {
 			`SELECT COALESCE(full_name,''), COALESCE(staff_id,'') FROM users WHERE user_id = $1::uuid`,
 			userID).Scan(&patrollerName, &patrollerStaffID)
 
-		// The tenant's display name, for the outbound notification's signature and
-		// its letterhead — see notifyPatrolAbsentEmail.
-		var tenantName string
-		_ = pool.QueryRow(r.Context(),
-			`SELECT COALESCE(name,'') FROM tenants WHERE tenant_id = $1`, tenantID).Scan(&tenantName)
-
 		written := 0
 		for _, l := range body.Logs {
 			if l.UnitID == "" || l.SessionDate == "" {
@@ -546,22 +540,16 @@ func PatrolSync(pool *pgxpool.Pool) http.HandlerFunc {
 				l.IsCompensation, l.CompensationFor)
 			if execErr == nil {
 				written++
-				// Persistent lecturer alert (stays in their inbox until they delete it): the patroller
-				// recorded whether they were teaching. Best-effort — a failure never fails the sync.
-				//
-				// The email/WhatsApp copy of a NOT TAUGHT verdict is fired below, from the same
-				// resolution, so the person the record is about hears about it off the app too
-				// (see patrol_absent_notify.go for the tone + per-slot dedup rules).
-				var lecUser, lecName, lecEmail, lecPhone string
+				// Persistent in-app alert (stays in the lecturer's inbox until they delete it): the
+				// patroller recorded whether they were teaching. Best-effort — a failure never
+				// fails the sync. The in-app inbox is the notification channel (see
+				// patrol_absent_alert.go): it is the inbox the phone app polls and pops.
+				var lecUser string
 				_ = conn.QueryRow(r.Context(), `
-					SELECT COALESCE(l.user_id::text,''),
-					       COALESCE(NULLIF(btrim(l.full_name),''), ''),
-					       COALESCE(NULLIF(btrim(l.email),''), u.email, ''),
-					       COALESCE(NULLIF(btrim(l.phone),''), u.phone, '')
+					SELECT COALESCE(l.user_id::text,'')
 					  FROM lecturers l
-					  LEFT JOIN users u ON u.user_id = l.user_id
 					 WHERE l.tenant_id = $1 AND btrim(lower(l.staff_id)) = btrim(lower($2))`,
-					tenantID, l.LecturerID).Scan(&lecUser, &lecName, &lecEmail, &lecPhone)
+					tenantID, l.LecturerID).Scan(&lecUser)
 				if lecUser != "" {
 					// WHICH lecture, said in full. A lecturer teaching the same unit to three
 					// cohorts used to get "recorded as NOT TAUGHT for Data Structures" and no way
@@ -581,14 +569,6 @@ func PatrolSync(pool *pgxpool.Pool) http.HandlerFunc {
 					// sender_id NULL is deliberate — see patrolSenderName: leaving the patroller's
 					// id here would render "Mr. QA Monitor".
 					insertPatrolAlert(r, conn, tenantID, subject, bodyTxt, action, actionRef, lecUser)
-				}
-
-				// The OUTBOUND guarantee: an absent verdict a polled inbox only shows to someone
-				// who opens the app is no accusation at all, so the email (and WhatsApp, once a
-				// provider is configured) is sent when the record is NOT TAUGHT. One letter per
-				// slot, claimed on notification_log; best-effort and never blocking the sync.
-				if !l.Taught {
-					notifyPatrolAbsentEmail(r, pool, tenantID, tenantName, l, lecUser, lecName, lecEmail, lecPhone)
 				}
 
 				// A lecture found away from its published slot is news to more people than

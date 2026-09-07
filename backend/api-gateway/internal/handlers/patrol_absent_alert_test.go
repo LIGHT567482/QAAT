@@ -94,28 +94,3 @@ func TestVerdictMessageDegradesWithoutCourseOrRoom(t *testing.T) {
 		}
 	}
 }
-
-func TestPatrolAbsentEmailStillCarriesRecordAndWayBack(t *testing.T) {
-	l := patrolLogIn{UnitName: "Data Structures", Room: "LR3",
-		SessionDate: "2026-09-03", ScheduledTime: "14:00", Taught: false}
-	subject, body := patrolAbsentEmail(l)
-
-	// The email is the reader who is NOT looking at the app's inbox; "say so here" is a
-	// tap-through that only exists there. The email must say WHERE the appeal lives — or a
-	// lecturer who got a letter has still been handed a dead end.
-	if strings.Contains(body, "say so here") {
-		t.Errorf("email keeps the app-only tap-through words:\n%s", body)
-	}
-	if !strings.Contains(subject, "QA monitor:") {
-		t.Errorf("email subject does not say who the record is from:\n%s", subject)
-	}
-	if !strings.Contains(body, "KIU QAAT app where this alert found you") {
-		t.Errorf("email lost the pointer to the appeal:\n%s", body)
-	}
-	if !strings.Contains(body, "two accounts") {
-		t.Errorf("email lost the 'filed beside the monitor' clause:\n%s", body)
-	}
-	if !strings.Contains(body, "14:00") || !strings.Contains(body, "Data Structures") {
-		t.Errorf("email does not say which lecture and when:\n%s", body)
-	}
-}
