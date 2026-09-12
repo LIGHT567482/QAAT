@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -382,15 +381,7 @@ func writeAttendanceLogs(ctx context.Context, pool *pgxpool.Pool, payload []byte
 			SessionDate   string `json:"session_date"`
 			SessionStatus string `json:"session_status"` // "CLOSED" or "AUTO_CLOSED"
 		} `json:"session"`
-		AttendanceRecords []struct {
-			LogID                string `json:"log_id"`
-			SessionID            string `json:"session_id"`
-			StudentIDHash        string `json:"student_id_hash"`
-			DeviceFingerprintHash string `json:"device_fingerprint_hash"`
-			SequenceNumber       int    `json:"sequence_number"`
-			CheckinTimestamp     string `json:"checkin_timestamp"`
-			EntryMethod          string `json:"entry_method"`
-		} `json:"attendance_records"`
+		AttendanceRecords []studentRecord `json:"attendance_records"`
 		// Phone-hub only: the lecturer's physical-presence proof (they scanned the gate to START,
 		// and optionally to END). We seed lecturer_attendance_logs from this — which both shows the
 		// lecturer's attendance in the dashboards AND makes this session's student attendance
@@ -501,14 +492,13 @@ func writeAttendanceLogs(ctx context.Context, pool *pgxpool.Pool, payload []byte
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("build student hash index: %w", err)
 	}
-	unresolved := 0
 
 	// ── LECTURER-SCAN GATE ────────────────────────────────────────────────────
-	// Attendance is persisted ONLY for sessions where the assigned lecturer actually
-	// scanned the coordinator's QR (lecturer_attendance_logs.lecturer_scanned_at set).
-	// Records for a session with no lecturer scan are NOT written — the lecture is
-	// unverified, so its attendance is not valid. (TODO phone-hub: when the offline
-	// package carries the lecturer's scan, also seed lecturer_attendance_logs here.)
+	// Kept as TELEMETRY ONLY: in the U-Panel model the session is verified by
+	// whoever opened it (sessions.opened_by), so a missing QR gate scan no longer
+	// blocks student records from reaching the ledger. Sessions whose lecturer
+	// scan is still absent are RECORDED in full and merely counted here so the
+	// upload response keeps its legacy rejected_no_lecturer meaning.
 	sessionSet := map[string]struct{}{}
 	if pkg.Session.SessionID != "" {
 		sessionSet[pkg.Session.SessionID] = struct{}{}
@@ -539,69 +529,16 @@ func writeAttendanceLogs(ctx context.Context, pool *pgxpool.Pool, payload []byte
 		vRows.Close()
 	}
 
-	// ── STUDENT ATTENDANCE TAKING: SUSPENDED ────────────────────────────────────
-	// Uploaded packages may still CONTAIN student records — a coordinator's phone that was
-	// offline before the suspension is entitled to finish syncing — but none are written.
-	// They are counted as rejected rather than dropped in silence, so the upload reports
-	// honestly instead of looking like an empty package.
-	//
-	// The lecturer rows written earlier in this function are NOT affected: lecturer attendance
-	// and the QA monitor round continue exactly as before. Remove this block to restore.
-	if len(pkg.AttendanceRecords) > 0 {
-		return written, duplicates, rejectedNoLecturer + len(pkg.AttendanceRecords), nil
-	}
-
-	for _, rec := range pkg.AttendanceRecords {
-		// TESTING PHASE: the lecturer-scan verification gate is RELAXED. Previously, attendance for a
-		// session with no lecturer scan was DROPPED here (continue), which is why a student who
-		// attended could still see 0% — their record never reached the summary. We now RECORD every
-		// captured attendance so it counts toward progress; lecturer presence is still seeded into
-		// lecturer_attendance_logs above when the package carries it. The counter is kept for
-		// telemetry only. Re-tighten (restore `continue`) alongside re-enabling the device-lock
-		// anti-cheat (AppState.ENFORCE_DEVICE_LOCK) before go-live.
-		if !verified[rec.SessionID] {
-			rejectedNoLecturer++
-		}
-		studentID := hashToReg[rec.StudentIDHash]
-		if studentID == "" {
-			// Fallback: a value that already fits the column is treated as a raw
-			// reg-no (back-compat); anything else is an unknown hash → skip (the edge
-			// validator already gates on roster membership, so this should be rare).
-			if len(rec.StudentIDHash) <= 50 {
-				studentID = rec.StudentIDHash
-			} else {
-				unresolved++
-				continue
-			}
-		}
-		tag, execErr := conn.Exec(ctx, `
-			INSERT INTO attendance_logs
-			  (log_id, tenant_id, session_id, student_id, checkin_timestamp,
-			   device_fingerprint_hash, sequence_number, entry_method,
-			   coordinator_id)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-			ON CONFLICT (tenant_id, session_id, coordinator_id, sequence_number)
-			  WHERE entry_method = 'QR_SCAN' DO NOTHING`,
-			rec.LogID, tenantID, rec.SessionID, studentID,
-			rec.CheckinTimestamp, rec.DeviceFingerprintHash,
-			rec.SequenceNumber, rec.EntryMethod, coordinatorID,
-		)
-		if execErr != nil {
-			// A genuine write failure aborts the batch rather than being
-			// miscounted as a duplicate.
-			return written, duplicates, rejectedNoLecturer, fmt.Errorf("insert log %s: %w", rec.LogID, execErr)
-		}
-		// ON CONFLICT DO NOTHING returns no error; 0 rows affected means the
-		// vector clock already existed → a real duplicate.
-		if tag.RowsAffected() == 0 {
-			duplicates++
-		} else {
-			written++
-		}
-	}
-	if unresolved > 0 {
-		slog.Warn("sync: attendance records with unresolved student hashes were skipped",
-			"count", unresolved, "tenant", tenantID)
+	// ── STUDENT ATTENDANCE: THE U-PANEL VERIFIER ───────────────────────────────
+	// Every captured record is judged by the shared attendance engine (the Go port
+	// of U-Panel's maybe_process_check_in, docs/U-PANEL-MIGRATION.md §4.2) before
+	// anything reaches the append-only ledger. Outcomes are persisted to
+	// checkin_attempts (all of them, notes on why) and attendance_logs (accepted
+	// only). See processStudentAttempts for the details.
+	written, duplicates, rejectedNoLecturer, err = processStudentAttempts(ctx, conn,
+		tenantID, coordinatorID, pkg.AttendanceRecords, hashToReg, verified)
+	if err != nil {
+		return written, duplicates, rejectedNoLecturer, err
 	}
 	return written, duplicates, rejectedNoLecturer, nil
 }

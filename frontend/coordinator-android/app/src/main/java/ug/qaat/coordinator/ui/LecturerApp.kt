@@ -23,7 +23,6 @@ import ug.qaat.coordinator.net.LecturerRecipientsClient
 import ug.qaat.coordinator.net.LecturerTimetableClient
 import ug.qaat.coordinator.net.OpenRegisterClient
 import ug.qaat.coordinator.net.NotificationClient
-import ug.qaat.coordinator.store.SessionStore
 import ug.qaat.coordinator.student.Fingerprint
 import ug.qaat.coordinator.student.GateClient
 
@@ -56,8 +55,7 @@ fun LecturerApp() {
     }
 
     Scaffold(
-        containerColor = (if (!AppState.darkTheme) appBackgroundColor(AppState.branding) else null)
-            ?: MaterialTheme.colorScheme.background,
+        containerColor = appBackgroundColor(AppState.branding) ?: MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 colors = if (navColor != null) TopAppBarDefaults.topAppBarColors(
@@ -69,11 +67,6 @@ fun LecturerApp() {
                 actions = {
                     IconButton(onClick = { reloadKey++ }) {
                         BarIcon(NavIcons.Sync, "Refresh", onNav ?: MaterialTheme.colorScheme.primary)
-                    }
-                    IconButton(onClick = { AppState.darkTheme = !AppState.darkTheme; SessionStore.saveTheme(AppState.darkTheme) }) {
-                        BarIcon(if (AppState.darkTheme) NavIcons.LightMode else NavIcons.DarkMode,
-                            if (AppState.darkTheme) "Switch to light theme" else "Switch to dark theme",
-                            onNav ?: MaterialTheme.colorScheme.primary)
                     }
                 },
             )

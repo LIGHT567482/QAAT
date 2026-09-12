@@ -22,6 +22,29 @@ import (
 	"testing"
 )
 
+func TestPatrolVerdictKeyIsStable(t *testing.T) {
+	k1 := patrolVerdictKey("DSA101", "2026-09-03", "14:00", "", false)
+	k2 := patrolVerdictKey("DSA101", "2026-09-03", "14:00", "", false)
+	if k1 != k2 {
+		t.Errorf("same input produced different keys: %q vs %q", k1, k2)
+	}
+	// Verdict flip must change the key so a corrected record is a fresh message.
+	k3 := patrolVerdictKey("DSA101", "2026-09-03", "14:00", "", true)
+	if k1 == k3 {
+		t.Errorf("flipping taught did not change the key: %q", k3)
+	}
+	// Different sitting must differ.
+	k4 := patrolVerdictKey("DSA101", "2026-09-03", "16:00", "", false)
+	if k1 == k4 {
+		t.Errorf("different scheduled time produced same key: %q", k4)
+	}
+	// Offering normalisation: blank and the zero UUID are the same thing.
+	k5 := patrolVerdictKey("DSA101", "2026-09-03", "14:00", "00000000-0000-0000-0000-000000000000", false)
+	if k1 != k5 {
+		t.Errorf("blank vs zero-UUID offering produced different keys: %q vs %q", k1, k5)
+	}
+}
+
 func TestVerdictMessageNamesNoMonitor(t *testing.T) {
 	l := patrolLogIn{UnitID: "DSA101", UnitName: "Data Structures", CourseCode: "BSC-CS",
 		LecturerID: "10001", LecturerName: "Jane Doe", Room: "LR3",

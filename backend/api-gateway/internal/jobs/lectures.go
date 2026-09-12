@@ -23,14 +23,14 @@ import (
 // Notification kinds. These are the subject_key namespaces in notification_log, so
 // renaming one re-sends its whole history — don't.
 const (
-	KindLectureReminder   = "LECTURE_REMINDER"
-	KindAttendanceMissing = "ATTENDANCE_MISSING"
-	KindQAEscalation      = "QA_ESCALATION"
+	KindLectureReminder        = "LECTURE_REMINDER"
+	KindLectureReminderStudent = "LECTURE_REMINDER_STUDENT"
+	KindAttendanceMissing      = "ATTENDANCE_MISSING"
+	KindQAEscalation           = "QA_ESCALATION"
 )
 
 // Timings, in minutes relative to a slot's scheduled start.
 const (
-	remindBeforeMinutes  = 10 // "your lecture starts in 10 minutes"
 	chaseAfterMinutes    = 10 // nobody has recorded you yet
 	escalateAfterMinutes = 20 // still nobody: go and see QA
 	qaVisitWithinMinutes = 20 // how long they have to present themselves
@@ -52,7 +52,7 @@ type dueSlot struct {
 
 // Register wires every lecture-related job into the scheduler.
 //
-// All three run minute-by-minute because they fire on a precise offset from a
+// All four run minute-by-minute because they fire on a precise offset from a
 // lecture's start; a coarser window would make "10 minutes before" mean anywhere
 // in a five-minute band. MaxCatchUp is deliberately short: a gateway that was down
 // all morning must not wake at noon and tell forty lecturers their 9am lecture is
@@ -67,27 +67,45 @@ func Register(s *scheduler.Scheduler, pool *pgxpool.Pool) {
 		Run: func(ctx context.Context, w scheduler.Window) error { return attendanceMissing(ctx, pool, w) },
 	})
 	s.Register(scheduler.Job{
+		Name: "student_lecture_reminder", Every: minute, MaxCatchUp: 30 * minute,
+		Run: func(ctx context.Context, w scheduler.Window) error { return studentReminder(ctx, pool, w) },
+	})
+	s.Register(scheduler.Job{
 		Name: "qa_escalation", Every: minute, MaxCatchUp: 60 * minute,
 		Run: func(ctx context.Context, w scheduler.Window) error { return qaEscalation(ctx, pool, w) },
 	})
 }
 
-// lectureReminder: 10 minutes before a lecture, tell the lecturer it is about to
-// start. Purely a courtesy, and the only one of the three that is not an
-// accusation — which is why it is the one with the shortest catch-up.
+// lectureReminder: at 30, 15 and 5 minutes before a lecture, tell the lecturer each time it is
+// about to start — the same three nudges the students get, unfolding as the moment approaches.
+// Purely a courtesy, and the only one of the lecture jobs that is not an accusation — which is
+// why it is the one with the shortest catch-up.
 func lectureReminder(ctx context.Context, pool *pgxpool.Pool, w scheduler.Window) error {
-	slots, err := slotsStartingIn(ctx, pool, w, remindBeforeMinutes)
+	for _, offset := range lecturerReminderOffsets {
+		if err := remindLecturers(ctx, pool, w, offset); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// remindLecturers fans one offset's worth of nudges out to the lecturers of every lecture
+// starting that far ahead. Mirror of remindStudents: three separate notices at 30, 15 and 5
+// minutes — each a distinct notification, not one reminder repeating — so the offset is part of
+// the claim key and a pass at 30 minutes cannot swallow the 15 and 5 minute ones.
+func remindLecturers(ctx context.Context, pool *pgxpool.Pool, w scheduler.Window, offset int) error {
+	slots, err := slotsStartingIn(ctx, pool, w, offset)
 	if err != nil {
 		return err
 	}
 	for _, s := range slots {
-		subject := fmt.Sprintf("Starts in %d minutes: %s", remindBeforeMinutes, s.UnitName)
+		subject := fmt.Sprintf("Starts in %d minutes: %s", offset, s.UnitName)
 		body := fmt.Sprintf("%s%s begins at %s%s.",
 			s.UnitName,
 			paren(s.CourseCode),
 			s.StartTime,
 			ifNotBlank(s.Room, " in "))
-		if err := notifyLecturer(ctx, pool, s, KindLectureReminder, subject, body); err != nil {
+		if err := notifyLecturer(ctx, pool, s, KindLectureReminder, fmt.Sprintf("%s:%d", s.SlotID, offset), subject, body); err != nil {
 			return err
 		}
 	}
@@ -121,7 +139,7 @@ func attendanceMissing(ctx context.Context, pool *pgxpool.Pool, w scheduler.Wind
 			"Your %s lecture%s was due to start at %s%s, and neither the coordinator nor a QA patroller has recorded it.\n\n"+
 				"If you are teaching, ask the coordinator to open the session.",
 			s.UnitName, paren(s.CourseCode), s.StartTime, ifNotBlank(s.Room, " in "))
-		if err := notifyLecturer(ctx, pool, s, KindAttendanceMissing, subject, body); err != nil {
+		if err := notifyLecturer(ctx, pool, s, KindAttendanceMissing, s.SlotID, subject, body); err != nil {
 			return err
 		}
 	}
@@ -154,11 +172,141 @@ func qaEscalation(ctx context.Context, pool *pgxpool.Pool, w scheduler.Window) e
 				"If you taught this lecture, please go to the Quality Assurance office within %d minutes so the record can be corrected. "+
 				"Left as it is, this counts as a lecture that did not happen.",
 			s.UnitName, paren(s.CourseCode), s.StartTime, ifNotBlank(s.Room, " in "), qaVisitWithinMinutes)
-		if err := notifyLecturer(ctx, pool, s, KindQAEscalation, subject, body); err != nil {
+		if err := notifyLecturer(ctx, pool, s, KindQAEscalation, s.SlotID, subject, body); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// lecturerReminderOffsets is how far ahead of a lecture's start each nudge goes. The
+// requirement is three separate notices at 30, 15 and 5 minutes — each a distinct
+// notification, not one reminder repeating — so each offset is its own pass over the
+// timetable, exactly like the students' reminders.
+var lecturerReminderOffsets = []int{30, 15, 5}
+
+// studentReminderOffsetBeforeStart is how far ahead of a lecture's start each nudge goes. The
+// requirement is three separate notices at 30, 15 and 5 minutes — each a distinct notification,
+// not one reminder repeating — so each offset is its own pass over the timetable.
+var studentReminderOffsets = []int{30, 15, 5}
+
+// studentReminder: at 30, 15 and 5 minutes before a lecture, every enrolled student with a
+// user account is told it is about to start. Purely a courtesy, like the lecturer's nudge, so
+// the catch-up is short — a gateway that slept through the morning must not wake at noon and
+// tell a thousand students their 9am lecture is about to start.
+func studentReminder(ctx context.Context, pool *pgxpool.Pool, w scheduler.Window) error {
+	for _, offset := range studentReminderOffsets {
+		if err := remindStudents(ctx, pool, w, offset); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// remindStudents fans one offset's worth of nudges out to the students of every lecture starting
+// that far ahead. Mirror of lectureReminder, with recipients resolved best-effort: a student who
+// has no account simply is not reached, and the others are not held back for them.
+func remindStudents(ctx context.Context, pool *pgxpool.Pool, w scheduler.Window, offset int) error {
+	slots, err := studentSlotsStartingIn(ctx, pool, w, offset)
+	if err != nil {
+		return err
+	}
+	for _, s := range slots {
+		students, err := studentsOfUnit(ctx, pool, s.TenantID, s.UnitID)
+		if err != nil {
+			return err
+		}
+		day, err := clock.ParseDate(clock.Today())
+		if err != nil {
+			return err
+		}
+		for _, st := range students {
+			already, err := scheduler.AlreadySent(ctx, pool, s.TenantID,
+				KindLectureReminderStudent, s.SlotID+":"+st.UserID, day, st.UserID, "APP")
+			if err != nil || already {
+				continue
+			}
+			body := fmt.Sprintf("Your %s lecture%s begins at %s%s. Check in when the session opens.",
+				s.UnitName, paren(s.CourseCode), s.StartTime, ifNotBlank(s.Room, " in "))
+			subject := fmt.Sprintf("Starts in %d minutes: %s", offset, s.UnitName)
+			if err := sendAppNotificationTo(ctx, pool, s.TenantID, s.UnitID,
+				subject, body, st.UserID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// studentSlotsStartingIn is querySlots without the lecturer sideways join: the student reminder
+// cares that a lecture is on the timetable, not whether its lecturer holds an account — a slot
+// that the lecturer table would drop must still remind the students.
+func studentSlotsStartingIn(ctx context.Context, pool *pgxpool.Pool, w scheduler.Window, offset int) ([]dueSlot, error) {
+	fromMin := minutesSinceMidnight(w.From) + offset
+	toMin := minutesSinceMidnight(w.To) + offset
+	if toMin < 0 || fromMin > 24*60 {
+		return nil, nil
+	}
+
+	rows, err := pool.Query(ctx, `
+		SELECT ts.tenant_id::text, ts.slot_id::text, ts.unit_id,
+		       COALESCE(cu.name, ts.unit_id), COALESCE(cu.course_id, ''),
+		       COALESCE(NULLIF(ts.room, ''), ts.venue_id, ''),
+		       to_char(ts.start_time, 'HH24:MI')
+		  FROM timetable_slots ts
+		  JOIN course_units cu ON cu.unit_id = ts.unit_id
+		 WHERE ts.day_of_week = $1
+		   AND EXTRACT(HOUR FROM ts.start_time) * 60 + EXTRACT(MINUTE FROM ts.start_time) >= $2
+		   AND EXTRACT(HOUR FROM ts.start_time) * 60 + EXTRACT(MINUTE FROM ts.start_time) <  $3`,
+		isoWeekday(w.From), fromMin, toMin)
+	if err != nil {
+		return nil, fmt.Errorf("student due slots: %w", err)
+	}
+	defer rows.Close()
+
+	var out []dueSlot
+	for rows.Next() {
+		var s dueSlot
+		if rows.Scan(&s.TenantID, &s.SlotID, &s.UnitID, &s.UnitName, &s.CourseCode, &s.Room, &s.StartTime) == nil {
+			out = append(out, s)
+		}
+	}
+	return out, rows.Err()
+}
+
+// studentNotif is one student to notify: their registration number (the ledger identity) and
+// the user_id that owns their inbox.
+type studentNotif struct {
+	RegNo  string
+	UserID string
+}
+
+// studentsOfUnit returns the enrolled students of a unit who hold a user account. The chain is
+// unit → course → offering → enrollment → account — the same chain resolveRecipients uses for a
+// lecturer's class-wide message, minus the lecturer's own scope, because the reminder belongs to
+// the lecture, not to the lecturer.
+func studentsOfUnit(ctx context.Context, pool *pgxpool.Pool, tenantID, unitID string) ([]studentNotif, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT DISTINCT s.student_id, u.user_id::text
+		  FROM course_units cu
+		  JOIN course_offerings co ON co.course_id = cu.course_id
+		  JOIN students_extended s ON s.offering_id = co.offering_id AND s.enrollment_status = 'ACTIVE'
+		  JOIN users u ON lower(u.email) = lower(s.email) AND u.tenant_id = $1
+		 WHERE cu.tenant_id = $1 AND cu.unit_id = $2 AND COALESCE(u.is_active, true)`,
+		tenantID, unitID)
+	if err != nil {
+		return nil, fmt.Errorf("students of unit %s: %w", unitID, err)
+	}
+	defer rows.Close()
+
+	var out []studentNotif
+	for rows.Next() {
+		var st studentNotif
+		if rows.Scan(&st.RegNo, &st.UserID) == nil {
+			out = append(out, st)
+		}
+	}
+	return out, rows.Err()
 }
 
 // ── the queries ──────────────────────────────────────────────────────────────
@@ -258,12 +406,16 @@ func attendanceRecorded(ctx context.Context, pool *pgxpool.Pool, s dueSlot) (boo
 // Claim-then-send: a crash between the two leaves a notification recorded but not
 // delivered, never one delivered twice. A missed nudge the person can recover from;
 // duplicate 3am alerts destroy trust in every alert after them.
-func notifyLecturer(ctx context.Context, pool *pgxpool.Pool, s dueSlot, kind, subject, body string) error {
+//
+// key is the subject_key namespace: the slot id alone is right for a job that fires
+// once per lecture, but a job that nudges the same slot repeatedly (the 30/15/5
+// reminder ladder) folds its offset in so one pass cannot swallow the next.
+func notifyLecturer(ctx context.Context, pool *pgxpool.Pool, s dueSlot, kind, key, subject, body string) error {
 	day, err := clock.ParseDate(clock.Today())
 	if err != nil {
 		return err
 	}
-	already, err := scheduler.AlreadySent(ctx, pool, s.TenantID, kind, s.SlotID, day, s.LecturerUser, "APP")
+	already, err := scheduler.AlreadySent(ctx, pool, s.TenantID, kind, key, day, s.LecturerUser, "APP")
 	if err != nil {
 		return fmt.Errorf("claim %s for slot %s: %w", kind, s.SlotID, err)
 	}
@@ -271,17 +423,24 @@ func notifyLecturer(ctx context.Context, pool *pgxpool.Pool, s dueSlot, kind, su
 		return nil
 	}
 
+	return sendAppNotificationTo(ctx, pool, s.TenantID, s.UnitID, subject, body, s.LecturerUser)
+}
+
+// sendAppNotificationTo writes one SYSTEM notification and fans it out to exactly one recipient.
+// Shared by the lecturer nudge and the student reminders; the subjects differ, the plumbing is
+// one thing.
+func sendAppNotificationTo(ctx context.Context, pool *pgxpool.Pool, tenantID, unitID, subject, body, recipientUserID string) error {
 	var nid string
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO app_notifications (tenant_id, sender_id, sender_name, sender_role, audience, unit_id, subject, body)
-		VALUES ($1, NULL, 'QAAT', 'SYSTEM', 'DIRECT', $2, $3, $4)
+		VALUES ($1, NULL, 'QAAT', 'SYSTEM', 'DIRECT', NULLIF($2,''), $3, $4)
 		RETURNING notification_id::text`,
-		s.TenantID, s.UnitID, subject, body).Scan(&nid); err != nil {
+		tenantID, unitID, subject, body).Scan(&nid); err != nil {
 		return fmt.Errorf("write notification: %w", err)
 	}
-	_, err = pool.Exec(ctx, `
+	_, err := pool.Exec(ctx, `
 		INSERT INTO notification_recipients (notification_id, tenant_id, recipient_user_id)
-		VALUES ($1, $2, $3::uuid) ON CONFLICT DO NOTHING`, nid, s.TenantID, s.LecturerUser)
+		VALUES ($1, $2, $3::uuid) ON CONFLICT DO NOTHING`, nid, tenantID, recipientUserID)
 	return err
 }
 

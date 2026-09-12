@@ -290,7 +290,7 @@ func CheckinCode(pool *pgxpool.Pool) http.HandlerFunc {
 // CloseSession allows the coordinator to explicitly close an active session.
 // It transitions ACTIVE → CLOSED, records gate_close_time, and calculates
 // contact_hours in lecturer_attendance_logs.
-func CloseSession(pool *pgxpool.Pool) http.HandlerFunc {
+func CloseSession(pool, adminPool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID := middleware.GetTenantID(r.Context())
 		coordID := middleware.GetUserID(r.Context())
@@ -338,6 +338,9 @@ func CloseSession(pool *pgxpool.Pool) http.HandlerFunc {
 		var count int
 		conn.QueryRow(r.Context(), //nolint:errcheck
 			`SELECT COUNT(*) FROM attendance_logs WHERE session_id = $1`, sessionID).Scan(&count)
+
+		// Tell the students who did not check in. Best-effort — the close already happened.
+		_ = notifyAbsentStudents(r.Context(), adminPool, sessionID, tenantID)
 
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"session_id":    sessionID,

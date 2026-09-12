@@ -7,11 +7,14 @@ import { api } from '../lib/api'
 import { useQuery } from '../lib/useApi'
 
 /**
- * THE OVERVIEW'S THREE CHARTS, shared by the DQA director, deans and heads of department.
+ * THE OVERVIEW'S CHARTS, shared by every oversight role: the DQA director, the VC, the tenant
+ * admin, QA officers, deans and heads of department.
  *
- * One component for all three because the DATA is already one endpoint: /api/v1/org/analytics
+ * One component for all of them because the DATA is already one endpoint: /api/v1/org/analytics
  * resolves the caller's own college or department from their account, so a dean's charts cover
  * their college and the directorate's cover the institution without either page knowing which.
+ * VC, ADMIN and QA_OFFICER sit in the same reader set (orgDashRoles) and see the institution
+ * whole, just as the DQA does.
  *
  * WHY THESE THREE FORMS. Each was chosen from the job the reader has, not from a wish for variety:
  *
@@ -100,8 +103,6 @@ export default function OverviewAnalytics() {
   if (status === 'loading') return <p style={{ color: 'var(--muted)' }}>Loading charts…</p>
   if (status === 'error' || !data) return null
 
-  // `by_group` is destructured without a binding while the student bar card below is deferred
-  // to v2 — the payload still carries it, and restoring the card restores `by_group: groups`.
   const { trend, outcomes, session_total: total } = data
 
 
@@ -125,6 +126,7 @@ export default function OverviewAnalytics() {
   // Older responses predate this series, and a dashboard that throws on a field the server has
   // not shipped yet is a worse failure than one chart being absent.
   const emp = data.employee_time ?? []
+  const groups = data.by_group ?? []
   const empOnTimePct = data.employee_days > 0
     ? Math.round((data.employee_on_time / data.employee_days) * 1000) / 10
     : 0
@@ -155,7 +157,8 @@ export default function OverviewAnalytics() {
         {/* ── Line: direction over time ─────────────────────────────────── */}
         <div style={card}>
           <ChartTitle>Teaching, week by week</ChartTitle>
-          <ChartNote>The share of timetabled lectures with a lecturer record.</ChartNote>
+          <ChartNote>The share of timetabled lectures with a lecturer record, and the share of
+            registered students who checked in — one y-scale, so they compare honestly.</ChartNote>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={trend} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
               <CartesianGrid stroke={grid} vertical={false} />
@@ -168,11 +171,9 @@ export default function OverviewAnalytics() {
                   animation settles renders its axes and NOTHING else. That is how these three
                   charts first came out — fully drawn frames with no data in them. It also means a
                   reader waits ~1s to read a dashboard, which is the wrong trade for a report. */}
-              {/* STUDENT MODULE: DEFERRED TO V2 — this series is student check-ins. The
-                  teaching series beside it is the lecturer record and is untouched. */}
-              {/* <Line type="monotone" dataKey="attendance_pct" name="Student attendance"
+              <Line type="monotone" dataKey="attendance_pct" name="Student attendance"
                 stroke={SERIES.attendance[k]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }}
-                isAnimationActive={false} /> */}
+                isAnimationActive={false} />
               <Line type="monotone" dataKey="taught_pct" name="Lectures delivered"
                 stroke={SERIES.taught[k]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }}
                 isAnimationActive={false} />
@@ -205,47 +206,48 @@ export default function OverviewAnalytics() {
           </ResponsiveContainer>
         </div>
 
-        {
-          // ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-          // This whole card charts STUDENT attendance by unit or department. Commented out, not
-          // deleted. It sits in an expression container rather than a {/* */} block because the
-          // card's own JSX comments cannot nest inside one. Restore by stripping the `// ` from
-          // the lines below and removing the `null`.
-          // {/* ── Bar: where ────────────────────────────────────────────────── */}
-          // <div style={{ ...card, gridColumn: '1 / -1' }}>
-          //   <ChartTitle>
-          //     Student attendance by {data.group_by === 'unit_name' ? 'unit' : 'department'}
-          //   </ChartTitle>
-          //   <ChartNote>One colour for every bar — the length already carries the magnitude.</ChartNote>
-          //   <ResponsiveContainer width="100%" height={Math.max(200, groups.length * 34)}>
-          //     <BarChart data={groups} layout="vertical" margin={{ top: 4, right: 52, left: 8, bottom: 4 }}>
-          //       {/* Recessive: the gridline is a reading aid behind the data, and at full strength it
-          //           read as a mark in its own right cutting across every bar. */}
-          //       <CartesianGrid stroke={grid} strokeOpacity={0.6} horizontal={false} />
-          //       <XAxis type="number" domain={[0, 100]} unit="%" {...axis} />
-          //       {/* Horizontal bars because department names are long — rotated labels are unreadable.
-          //           Recharts wraps a long category label onto three lines and lets it run into its
-          //           neighbour, which is what "Computer Science and Information Technology" did to
-          //           "Business Administration and Management". One line, elided, with the full name in
-          //           the tooltip. */}
-          //       {/* 16 characters, arrived at by rendering and measuring rather than by guessing:
-          //           Recharts breaks a tick label on WORD boundaries, so "Computer Science an…" still
-          //           took two lines inside the 168px gutter even though it fit by width. The full name
-          //           is in the tooltip, and the bar's own length is the thing being read here. */}
-          //       <YAxis type="category" dataKey="name" width={168} {...axis} interval={0}
-          //         tickFormatter={(v: string) => (v.length > 16 ? v.slice(0, 15) + '…' : v)} />
-          //       <Tooltip {...tooltip} formatter={(v: number, _n, p) => [`${v}% · ${p.payload.sessions} session(s)`, 'Attendance']}
-          //         labelFormatter={(l) => String(l)} />
-          //       <Bar dataKey="attendance_pct" name="Attendance" fill={SERIES.attendance[k]}
-          //         radius={[0, 4, 4, 0]} barSize={16} isAnimationActive={false}>
-          //         <LabelList dataKey="attendance_pct" position="right"
-          //           formatter={(v: number) => `${v}%`} style={{ fill: ink, fontSize: 11 }} />
-          //       </Bar>
-          //     </BarChart>
-          //   </ResponsiveContainer>
-          // </div>
-          null
-        }
+        {/* ── Bar: where ────────────────────────────────────────────────── */}
+        <div style={{ ...card, gridColumn: '1 / -1' }}>
+          <ChartTitle>
+            Student attendance by {data.group_by === 'unit_name' ? 'unit' : 'department'}
+          </ChartTitle>
+          <ChartNote>One colour for every bar — the length already carries the magnitude.</ChartNote>
+          {groups.length === 0 ? (
+            /* An empty chart frame reads as "0% attendance" rather than "nothing to measure yet",
+               and while student check-in is freshly live that is the misleading reading. Say
+               which it is instead of plotting an empty axis. */
+            <p style={{ color: 'var(--muted)', fontSize: 13, margin: 14, textAlign: 'center' }}>
+              No student check-ins yet — bars will appear here as students check in on their phones.
+            </p>
+          ) : (
+          <ResponsiveContainer width="100%" height={Math.max(200, groups.length * 34)}>
+            <BarChart data={groups} layout="vertical" margin={{ top: 4, right: 52, left: 8, bottom: 4 }}>
+              {/* Recessive: the gridline is a reading aid behind the data, and at full strength it
+                  read as a mark in its own right cutting across every bar. */}
+              <CartesianGrid stroke={grid} strokeOpacity={0.6} horizontal={false} />
+              <XAxis type="number" domain={[0, 100]} unit="%" {...axis} />
+              {/* Horizontal bars because department names are long — rotated labels are unreadable.
+                  Recharts wraps a long category label onto three lines and lets it run into its
+                  neighbour, which is what "Computer Science and Information Technology" did to
+                  "Business Administration and Management". One line, elided, with the full name in
+                  the tooltip. */}
+              {/* 16 characters, arrived at by rendering and measuring rather than by guessing:
+                  Recharts breaks a tick label on WORD boundaries, so "Computer Science an…" still
+                  took two lines inside the 168px gutter even though it fit by width. The full name
+                  is in the tooltip, and the bar's own length is the thing being read here. */}
+              <YAxis type="category" dataKey="name" width={168} {...axis} interval={0}
+                tickFormatter={(v: string) => (v.length > 16 ? v.slice(0, 15) + '…' : v)} />
+              <Tooltip {...tooltip} formatter={(v, _n, p) => [`${v}% · ${p.payload?.sessions ?? 0} session(s)`, 'Attendance']}
+                labelFormatter={(l) => String(l)} />
+              <Bar dataKey="attendance_pct" name="Attendance" fill={SERIES.attendance[k]}
+                radius={[0, 4, 4, 0]} barSize={16} isAnimationActive={false}>
+                <LabelList dataKey="attendance_pct" position="right"
+                  formatter={(v: number) => `${v}%`} style={{ fill: ink, fontSize: 11 }} />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          )}
+        </div>
 
         {/* ── Stacked bar: employee time accuracy ─────────────────────────
             Support staff clock in and out at a terminal, and the four ways a day can end are not

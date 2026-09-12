@@ -111,45 +111,6 @@ object NavIcons {
             close()
         }
     }
-
-    /** Filled sun — light-theme half of the theme toggle. */
-    val LightMode: ImageVector by lazy {
-        materialPath("qaat_light_mode") {
-            moveTo(12f, 7f)
-            curveToRelative(-2.76f, 0f, -5f, 2.24f, -5f, 5f)
-            reflectiveCurveToRelative(2.24f, 5f, 5f, 5f)
-            reflectiveCurveToRelative(5f, -2.24f, 5f, -5f)
-            reflectiveCurveToRelative(-2.24f, -5f, -5f, -5f)
-            close()
-            moveTo(11f, 1f); horizontalLineToRelative(2f); verticalLineToRelative(3f); horizontalLineToRelative(-2f); close()
-            moveTo(11f, 20f); horizontalLineToRelative(2f); verticalLineToRelative(3f); horizontalLineToRelative(-2f); close()
-            moveTo(1f, 11f); horizontalLineToRelative(3f); verticalLineToRelative(2f); horizontalLineToRelative(-3f); close()
-            moveTo(20f, 11f); horizontalLineToRelative(3f); verticalLineToRelative(2f); horizontalLineToRelative(-3f); close()
-            moveTo(4.22f, 5.64f); lineToRelative(1.42f, -1.42f); lineToRelative(2.12f, 2.12f)
-            lineToRelative(-1.42f, 1.42f); close()
-            moveTo(16.24f, 17.66f); lineToRelative(1.42f, -1.42f); lineToRelative(2.12f, 2.12f)
-            lineToRelative(-1.42f, 1.42f); close()
-            moveTo(16.24f, 6.34f); lineToRelative(2.12f, -2.12f); lineToRelative(1.42f, 1.42f)
-            lineToRelative(-2.12f, 2.12f); close()
-            moveTo(4.22f, 18.36f); lineToRelative(2.12f, -2.12f); lineToRelative(1.42f, 1.42f)
-            lineToRelative(-2.12f, 2.12f); close()
-        }
-    }
-
-    /** Filled crescent — dark-theme half of the theme toggle. */
-    val DarkMode: ImageVector by lazy {
-        materialPath("qaat_dark_mode") {
-            moveTo(12f, 3f)
-            curveToRelative(-4.97f, 0f, -9f, 4.03f, -9f, 9f)
-            reflectiveCurveToRelative(4.03f, 9f, 9f, 9f)
-            curveToRelative(3.72f, 0f, 6.91f, -2.25f, 8.28f, -5.47f)
-            curveToRelative(-0.9f, 0.31f, -1.86f, 0.47f, -2.86f, 0.47f)
-            curveToRelative(-4.83f, 0f, -8.75f, -3.92f, -8.75f, -8.75f)
-            curveToRelative(0f, -1.45f, 0.35f, -2.81f, 0.98f, -4.01f)
-            curveTo(11.42f, 3.08f, 11.71f, 3f, 12f, 3f)
-            close()
-        }
-    }
 }
 
 /**

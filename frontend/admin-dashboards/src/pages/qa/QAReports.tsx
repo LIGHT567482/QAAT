@@ -3,6 +3,7 @@ import { api } from '../../lib/api'
 import { useQuery } from '../../lib/useApi'
 import { QASubmissionsPanel } from './QAOrgDashboard'
 import ExportButtons from '../../components/ExportButtons'
+import OverviewAnalytics from '../../components/OverviewAnalytics'
 
 // QA reports: (1) cross-dimension lecturer-teaching report from monitor data (filterable), and
 // (2) today's employee biometric no-shows with a one-click email + WhatsApp notify.
@@ -90,6 +91,13 @@ export default function QAReports() {
             </tbody>
           </table>
         )}
+      </div>
+
+      {/* ── Analytics: the QA officer is in the same analyst set as the directorate, so the
+              institution-wide trend, outcome split and employee-time stack answer directly on
+              this, the officer's landing page, before diving into the reports below. */}
+      <div style={{ marginTop: 30 }}>
+        <OverviewAnalytics />
       </div>
 
       {/* ── QA rep submissions ───────────────────────────────────────────── */}

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { api, type VCOverview as VCOverviewData } from '../../lib/api'
 import { useQuery } from '../../lib/useApi'
+import OverviewAnalytics from '../../components/OverviewAnalytics'
 
 const today = new Date().toISOString().split('T')[0]
 
@@ -114,6 +115,12 @@ export default function VCOverview() {
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+
+          {/* Trend and composition for the whole institution — the VC is in the same
+              analyst set as the directorate, so these cover every college. */}
+          <div style={{ marginTop: 28 }}>
+            <OverviewAnalytics />
+          </div>
 
           {/* Ghost lecture list */}
           {d.ghost_sessions.length > 0 && (

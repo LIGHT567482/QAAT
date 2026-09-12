@@ -1,6 +1,7 @@
 import { api } from '../../lib/api'
 import { useQuery } from '../../lib/useApi'
 import { Kpi, KpiRow, Section } from '../../components/Kpi'
+import OverviewAnalytics from '../../components/OverviewAnalytics'
 
 // Tenant ADMIN home — scoped to the admin's OWN institution (tenant_id from JWT).
 // The academic period control lives on the Administration page (less accidental
@@ -53,6 +54,13 @@ export default function AdminHome() {
 
       {/* The state of the institution, not just links to the screens that manage it. */}
       <AdminPulse />
+
+      {/* Trend and composition across the whole institution, on the admin's own door — the same
+          charts the directorate and the VC read, because the same questions are asked in both
+          offices. The admin is in orgDashRoles, so the endpoint is already authorised here. */}
+      <div style={{ marginTop: 8 }}>
+        <OverviewAnalytics />
+      </div>
 
       <h3 style={{ margin: '26px 0 10px', fontSize: 16 }}>Manage</h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>

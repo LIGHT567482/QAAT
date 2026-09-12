@@ -21,12 +21,49 @@ package handlers
 // sharpened it would read as an escalation.
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// KindPatrolVerdict is the notification_log namespace for one patrol verdict. Renaming it
+// re-reads old verdicts as unsent and re-nudges every lecturer — don't.
+const KindPatrolVerdict = "PATROL_VERDICT"
+
+// patrolVerdictKey is the subject_key namespace for one verdict: the same row identity the
+// ON CONFLICT in the two patrol upserts keys on (unit, date, scheduled time, offering) plus
+// the verdict itself. The verdict is in the key so a re-tick that CORRECTS the record — say
+// NOT TAUGHT flipped to TAUGHT once the monitor learns the lesson was a compensation — is a
+// fresh message, while a re-tick that repeats the same verdict is silently ignored instead of
+// landing a second, identical accusation in the same inbox.
+func patrolVerdictKey(unitID, sessionDate, scheduledTime, offeringID string, taught bool) string {
+	offering := offeringID
+	if offering == "" {
+		offering = "00000000-0000-0000-0000-000000000000"
+	}
+	return fmt.Sprintf("%s|%s|%s|%s|%t", unitID, sessionDate, scheduledTime, offering, taught)
+}
+
+// claimPatrolVerdict records that one verdict has been told to one lecturer, and reports
+// whether THIS caller won the right to tell it. Best-effort by contract: every return
+// value either claims and means "send", or refuses to send — a live round must never
+// be held hostage to an alert's dedup. A crash between claim and send leaves a verdict
+// recorded but never told, never one told twice.
+func claimPatrolVerdict(ctx context.Context, conn *pgxpool.Conn, tenantID, subjectKey, subjectDate, recipientUser string) bool {
+	var claimed bool
+	err := conn.QueryRow(ctx, `
+		INSERT INTO notification_log (kind, subject_key, subject_date, recipient_user_id, channels)
+		VALUES ($1, $2, $3::date, $4::uuid, 'APP')
+		ON CONFLICT DO NOTHING
+		RETURNING true`, KindPatrolVerdict, subjectKey, subjectDate, recipientUser).Scan(&claimed)
+	if err != nil {
+		return false
+	}
+	return claimed
+}
 
 // verdictMessage is the words for the in-app alert — the subject line and the
 // body of the row insertPatrolAlert commits. One sentence, so there is exactly

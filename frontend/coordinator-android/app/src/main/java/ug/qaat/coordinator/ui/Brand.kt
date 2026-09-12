@@ -44,18 +44,15 @@ fun appBackgroundColor(b: BrandingClient.Branding?): Color? = b?.backgroundColor
 
 /** A Material3 colour scheme that inherits the tenant's brand + background colours (the
  *  same values the admin dashboards use), so the coordinator app looks like the tenant's.
- *  Honours the light/dark preference like the PWA's theme toggle. */
+ *  Light theme only. */
 @Composable
-fun brandedColorScheme(branding: BrandingClient.Branding?, dark: Boolean = false): ColorScheme {
-    var s = if (dark) darkColorScheme() else lightColorScheme()
+fun brandedColorScheme(branding: BrandingClient.Branding?): ColorScheme {
+    var s = lightColorScheme()
     branding?.brandColor?.let { parseHex(it) }?.let { s = s.copy(primary = it, secondary = it, tertiary = it) }
-    // Tenant page background applies in light mode only (a tenant's light bg would be
-    // unreadable in dark mode); dark mode keeps Material's dark surfaces.
-    if (!dark) branding?.backgroundColor?.let { parseHex(it) }?.let { s = s.copy(background = it) }
-    // Per-theme text colour the super-admin set — so text stays legible on the tenant's
-    // background in each mode (applied to on-background / on-surface content).
-    val textHex = if (dark) branding?.textColorDark else branding?.textColorLight
-    textHex?.let { parseHex(it) }?.let { s = s.copy(onBackground = it, onSurface = it) }
+    branding?.backgroundColor?.let { parseHex(it) }?.let { s = s.copy(background = it) }
+    // The text colour the super-admin set for light mode, so text stays legible on the
+    // tenant's background (applied to on-background / on-surface content).
+    branding?.textColorLight?.let { parseHex(it) }?.let { s = s.copy(onBackground = it, onSurface = it) }
     return s
 }
 

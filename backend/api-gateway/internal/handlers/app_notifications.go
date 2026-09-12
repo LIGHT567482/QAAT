@@ -2,10 +2,11 @@ package handlers
 
 // Cross-role in-app notifications (workstream D). A LECTURER notifies the students of his
 // unit(s) or the coordinator(s) of those units; a COORDINATOR notifies his cohort's students
-// or the lecturer(s) of his course units. Recipients are materialised at send time so a
-// reader's inbox (student / coordinator / lecturer) is a simple, fast lookup.
+// or the lecturer(s) of his course units; a QA monitor flags a found-empty room to the
+// lecturers they patrol and to the coordinator who owns it. Recipients are materialised at
+// send time so a reader's inbox (student / coordinator / lecturer) is a simple, fast lookup.
 //
-//   POST /api/v1/app-notifications                       (LECTURER, COORDINATOR)
+//   POST /api/v1/app-notifications                       (LECTURER, COORDINATOR, QA roles, QA_PATROLLER)
 //   GET  /api/v1/app-notifications                       (any signed-in app user)
 //   GET  /api/v1/app-notifications/unread-count          (any signed-in app user)
 //   POST /api/v1/app-notifications/{id}/read             (any signed-in app user)
@@ -239,7 +240,7 @@ func resolveRecipients(pool *pgxpool.Pool, r *http.Request, tenantID, senderID, 
 	// is its own branch rather than another audience on the org-role case above: those queries all
 	// hang off the sender's department/school, and a patroller has neither. QA is the one office
 	// whose remit is the whole institution, so the scope is the tenant.
-	case middleware.RoleQAOfficer, middleware.RoleDQADirector:
+	case middleware.RoleQAOfficer, middleware.RoleDQADirector, middleware.RolePatroller:
 		switch audience {
 		// MONITORS/MONITOR are what the dashboards send now that the role is called QA Monitor.
 		// The old spellings are still accepted because a handset or a browser tab that has not
@@ -265,9 +266,20 @@ func resolveRecipients(pool *pgxpool.Pool, r *http.Request, tenantID, senderID, 
 			sql = `SELECT l.user_id::text FROM lecturers l
 				WHERE l.tenant_id = $1 AND l.user_id IS NOT NULL
 				  AND btrim(lower(l.staff_id)) = btrim(lower($2))`
-		case "COORDINATORS":
-			sql = `SELECT user_id::text FROM users
-				WHERE tenant_id = $1 AND role = 'COORDINATOR' AND COALESCE(is_active, true)`
+		case "COORDINATORS", "COORDINATOR":
+			// ONE coordinator when a target is given, all of them when it is not. A monitor who
+			// finds a room empty flags it to the ONE coordinator who owns that room, not to every
+			// coordinator in the institution — the SQL stays honest even though only the app
+			// composer (and QA) currently send the singular form.
+			if targetID != "" {
+				args = append(args, targetID)
+				sql = `SELECT user_id::text FROM users
+					WHERE tenant_id = $1 AND role = 'COORDINATOR' AND COALESCE(is_active, true)
+					  AND user_id::text = $2`
+			} else {
+				sql = `SELECT user_id::text FROM users
+					WHERE tenant_id = $1 AND role = 'COORDINATOR' AND COALESCE(is_active, true)`
+			}
 		default:
 			return nil, nil
 		}
@@ -340,6 +352,39 @@ func danglingParams(sql string, argc int) []int {
 		}
 	}
 	return missing
+}
+
+// PatrolCoordinators — GET /api/v1/patrol/coordinators → the institution's coordinators
+// (id + name + department), so a monitor composer can address ONE by user id. A monitor is
+// not on the admin Users directory, and the one-coordinator audience (COORDINATOR) is only a
+// picker if there is a directory to pick from.
+func PatrolCoordinators(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tenantID := middleware.GetTenantID(r.Context())
+		rows, err := pool.Query(r.Context(), `
+			SELECT user_id::text, full_name, COALESCE(department,'')
+			FROM users
+			WHERE tenant_id = $1 AND role = 'COORDINATOR' AND COALESCE(is_active, true)
+			ORDER BY full_name`, tenantID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, errBody("INTERNAL_ERROR", err.Error()))
+			return
+		}
+		defer rows.Close()
+		type coord struct {
+			UserID     string `json:"user_id"`
+			FullName   string `json:"full_name"`
+			Department string `json:"department"`
+		}
+		out := []coord{}
+		for rows.Next() {
+			var c coord
+			if rows.Scan(&c.UserID, &c.FullName, &c.Department) == nil {
+				out = append(out, c)
+			}
+		}
+		writeJSON(w, http.StatusOK, out)
+	}
 }
 
 // CoordinatorLecturers — GET /api/v1/coordinator/lecturers → the lecturers who teach this
@@ -427,13 +472,18 @@ func SendAppNotification(pool *pgxpool.Pool) http.HandlerFunc {
 			// person, by staff id.
 			middleware.RoleQAOfficer:   {"MONITORS": true, "MONITOR": true, "PATROLLERS": true, "PATROLLER": true, "LECTURERS": true, "LECTURER": true, "COORDINATORS": true},
 			middleware.RoleDQADirector: {"MONITORS": true, "MONITOR": true, "PATROLLERS": true, "PATROLLER": true, "LECTURERS": true, "LECTURER": true, "COORDINATORS": true},
+			// A QA monitor mid-round is a witness with a phone. When they find a room empty or an
+			// office unmanned, the alert to the lecturer who should be there and the coordinator
+			// who owns the room IS the finding — so patrollers can write to the lecturers they
+			// patrol (bulk or one, by staff id) and to the coordinators (bulk or one, by user id).
+			middleware.RolePatroller: {"LECTURERS": true, "LECTURER": true, "COORDINATORS": true, "COORDINATOR": true},
 		}
 		if !valid[role][req.Audience] {
 			writeJSON(w, http.StatusBadRequest, errBody("INVALID_REQUEST", "invalid audience for your role"))
 			return
 		}
 		if (req.Audience == "STUDENT" || req.Audience == "LECTURER" || req.Audience == "HOD" ||
-			req.Audience == "PATROLLER" || req.Audience == "MONITOR") && req.TargetID == "" {
+			req.Audience == "PATROLLER" || req.Audience == "MONITOR" || req.Audience == "COORDINATOR") && req.TargetID == "" {
 			writeJSON(w, http.StatusBadRequest, errBody("INVALID_REQUEST", "pick a recipient"))
 			return
 		}

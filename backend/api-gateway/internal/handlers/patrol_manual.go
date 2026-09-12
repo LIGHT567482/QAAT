@@ -556,7 +556,64 @@ func PatrolManualEntry(pool *pgxpool.Pool) http.HandlerFunc {
 				action = "APPEAL_NOT_TAUGHT"
 				actionRef = unitID + "|" + sessionDate + "|" + observedAt
 			}
-			insertPatrolAlert(r, conn, tenantID, subject, bodyTxt, action, actionRef, lecUser)
+			// Claim-then-send, identical to the timetabled round: a re-submit of the same verdict
+			// is a duplicate, a corrected verdict is a fresh message (patrol_absent_alert.go).
+			if claimPatrolVerdict(r.Context(), conn, tenantID,
+				patrolVerdictKey(unitID, sessionDate, observedAt, "", req.Taught),
+				sessionDate, lecUser) {
+				insertPatrolAlert(r, conn, tenantID, subject, bodyTxt, action, actionRef, lecUser)
+			}
+		}
+
+		// ── A typed person and a typed unit leave a registry row behind ─────────────────────
+		//
+		// The manual entry exists for lectures the timetable does not know about, and the lecturer
+		// teaching them has often never appeared anywhere before. The next manual entry should not
+		// have to retype that person: the form's pick-lists ARE these tables, so a name written here
+		// once is a name the next phone can pick. Both writes are best-effort and never fail the
+		// observation — the patrol log is the record, and a registry courtesy that loses to a
+		// duplicate or a race must not lose the record with it.
+		//
+		// A TYPED lecturer is filed under the name the observation used — the same key the log row
+		// carries, so picking them next time re-sends that key and the reports keep grouping. Only
+		// a TYPED name reaches here: a picked lecturer already is the registry, and asking the
+		// monitor to confirm is what the manual form's disclaimers are for.
+		if req.LecturerStaffID == "" && strings.TrimSpace(lecturerKey) != "" {
+			_, _ = conn.Exec(r.Context(), `
+				INSERT INTO lecturers (tenant_id, full_name, staff_id, department, school_id)
+				SELECT $1, $2, $3, NULLIF($4,''), s.school_id
+				  FROM (SELECT $5::text AS school) x
+				  LEFT JOIN schools s ON s.tenant_id = $1
+				   AND btrim(lower(s.name)) = btrim(lower(x.school))
+				ON CONFLICT (tenant_id, staff_id) WHERE staff_id IS NOT NULL AND staff_id <> ''
+				DO UPDATE SET full_name  = EXCLUDED.full_name,
+				              department = COALESCE(NULLIF(EXCLUDED.department,''), lecturers.department),
+				              school_id  = COALESCE(EXCLUDED.school_id, lecturers.school_id)`,
+				tenantID, strings.TrimSpace(lecturerName), lecturerKey,
+				department, school)
+		}
+
+		// A TYPED unit is given a curriculum row under the tenant's placeholder course, so the
+		// same unit can be picked instead of typed on the next round. A unit that was picked
+		// already lives in the curriculum and needs nothing. The placeholder course is the same
+		// "not yet assigned" bucket migration 105 seeds — one unassigned course beats a nullable
+		// column, because it keeps every curriculum query working unchanged.
+		if req.UnitID == "" && strings.TrimSpace(unitID) != "" {
+			unitName = strings.TrimSpace(unitName)
+			if len(unitName) > 200 {
+				unitName = unitName[:200]
+			}
+			_, _ = conn.Exec(r.Context(), `
+				INSERT INTO courses (course_id, tenant_id, name)
+				SELECT 'UNASSIGNED', $1, 'Unassigned (manual)'
+				WHERE NOT EXISTS (SELECT 1 FROM courses WHERE course_id = 'UNASSIGNED')`,
+				tenantID)
+			_, _ = conn.Exec(r.Context(), `
+				INSERT INTO course_units (unit_id, tenant_id, course_id, name)
+				SELECT $1, $2, 'UNASSIGNED', $3
+				  FROM (SELECT 1) x
+				 WHERE NOT EXISTS (SELECT 1 FROM course_units WHERE unit_id = $1 AND tenant_id = $2)`,
+				unitID, tenantID, unitName)
 		}
 
 		// ── The other units this same hour covered ──────────────────────────────────────────

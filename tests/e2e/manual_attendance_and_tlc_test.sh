@@ -33,9 +33,11 @@ DELETE FROM lecturer_assignments  WHERE unit_id LIKE 'MANT-%';
 DELETE FROM timetable_slots       WHERE unit_id LIKE 'MANT-%';
 DELETE FROM offering_unit_schedules WHERE unit_id LIKE 'MANT-%';
 DELETE FROM course_units          WHERE unit_id LIKE 'MANT-%';
+DELETE FROM course_units          WHERE unit_id = 'Ghost Unit 101' AND course_id = 'UNASSIGNED';
 DELETE FROM course_offerings      WHERE course_id IN ('MANT-CS','MANT-NUR');
 DELETE FROM courses               WHERE course_id IN ('MANT-CS','MANT-NUR');
 DELETE FROM lecturers             WHERE staff_id LIKE 'MANT-%';
+DELETE FROM lecturers             WHERE staff_id = 'Visiting Lecturer';
 DELETE FROM venues                WHERE venue_id LIKE 'MANT-%';
 DELETE FROM schools               WHERE name LIKE 'MANTEST%';
 DELETE FROM users                 WHERE email LIKE 'mant.%';
@@ -167,6 +169,19 @@ has "…keeping the typed unit"            'Ghost Unit 101'      "$R"
 has "…and the typed lecturer"            'Visiting Lecturer'   "$R"
 check "…with the typed class/group"      "$(sql "SELECT class_group FROM lecturer_patrol_logs WHERE unit_name='Ghost Unit 101'")" "3:2"
 check "…and the typed room"              "$(sql "SELECT room FROM lecturer_patrol_logs WHERE unit_name='Ghost Unit 101'")" "Old Hall"
+# The record is not a one-off: a typed lecturer and a typed unit leave registry rows behind, so the
+# next manual form (and the unit pick) finds them instead of making the monitor retype them.
+check "the typed LECTURER is saved into the lecturers registry" \
+  "$(sql "SELECT count(*) FROM lecturers WHERE staff_id='Visiting Lecturer' AND tenant_id='$TEN'")" "1"
+check "…filed under the name the observation used" \
+  "$(sql "SELECT full_name FROM lecturers WHERE staff_id='Visiting Lecturer' AND tenant_id='$TEN'")" "Visiting Lecturer"
+check "the typed UNIT is saved into the curriculum" \
+  "$(sql "SELECT count(*) FROM course_units WHERE unit_id='Ghost Unit 101' AND tenant_id='$TEN'")" "1"
+check "…under the unassigned placeholder course" \
+  "$(sql "SELECT course_id FROM course_units WHERE unit_id='Ghost Unit 101' AND tenant_id='$TEN'")" "UNASSIGNED"
+REF2=$(body GET /api/v1/patrol/reference "$MON")
+has "the next reference call offers the typed lecturer as a pick" 'Visiting Lecturer' "$REF2"
+has "…and the typed unit as a pick"      '"unit_id":"Ghost Unit 101"' "$REF2"
 
 # The two facts without which the record means nothing.
 has "an entry with no unit at all is refused"     'course unit' \

@@ -135,7 +135,7 @@ private suspend fun refreshAll() {
  * the most powerful one.
  */
 @Composable
-fun RootApp() = MaterialTheme(colorScheme = brandedColorScheme(AppState.branding, AppState.darkTheme)) {
+fun RootApp() = MaterialTheme(colorScheme = brandedColorScheme(AppState.branding)) {
     AppState.lastCrash?.let { trace -> CrashReportDialog(trace) { AppState.lastCrash = null } }
     // One full-screen Box so the faint institution-logo watermark sits on EVERY page (login,
     // the mandatory password change, and all three role experiences).
@@ -222,8 +222,7 @@ fun CoordinatorApp() {
 
     val nav = rememberNavController()
     Scaffold(
-        containerColor = (if (!AppState.darkTheme) appBackgroundColor(AppState.branding) else null)
-            ?: MaterialTheme.colorScheme.background,
+        containerColor = appBackgroundColor(AppState.branding) ?: MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 colors = if (navColor != null) TopAppBarDefaults.topAppBarColors(
@@ -321,9 +320,6 @@ private fun ProfilePopup(onClose: () -> Unit, onChangePw: () -> Unit) {
                 // Button(onClick = onOpenPortal, modifier = Modifier.fillMaxWidth()) { Text("🎓  Student portal") }
 
                 HorizontalDivider(Modifier.padding(vertical = 10.dp))
-                TextButton(onClick = { AppState.darkTheme = !AppState.darkTheme; SessionStore.saveTheme(AppState.darkTheme) }, modifier = Modifier.fillMaxWidth()) {
-                    Text((if (AppState.darkTheme) "☀  Light mode" else "☾  Dark mode"), modifier = Modifier.fillMaxWidth())
-                }
                 TextButton(onClick = onChangePw, modifier = Modifier.fillMaxWidth()) { Text("🔑  Change password", modifier = Modifier.fillMaxWidth()) }
                 // The shared control, not a bare callback: it is what refuses to sign out of an
                 // open session and warns about attendance still waiting to upload. Rendered INSIDE

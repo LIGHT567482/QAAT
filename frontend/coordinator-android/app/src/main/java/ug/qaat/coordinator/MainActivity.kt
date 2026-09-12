@@ -37,7 +37,6 @@ class MainActivity : ComponentActivity() {
             Graph.init(applicationContext)
             Net.init(applicationContext)      // load the embedded, pinned QAAT cert
             SessionStore.init(applicationContext)
-            SessionStore.restoreTheme()
             // Always use the built-in KIU cloud backend (BuildConfig.API_BASE) on every phone — no
             // per-device server field anymore. Clear any override a previous build may have saved, so
             // a phone that once had a wrong address typed in self-heals instead of failing to log in.

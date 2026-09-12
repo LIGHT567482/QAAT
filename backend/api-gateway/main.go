@@ -142,6 +142,7 @@ func main() {
 	sched := scheduler.New(adminPool, logger)
 	jobs.Register(sched, adminPool)
 	jobs.RegisterEmployeeJobs(sched, adminPool)
+	jobs.RegisterSessionSweeps(sched, pool, adminPool)
 	sched.Start(context.Background())
 	defer sched.Stop()
 

@@ -566,9 +566,17 @@ func PatrolSync(pool *pgxpool.Pool) http.HandlerFunc {
 						action = "APPEAL_NOT_TAUGHT"
 						actionRef = l.UnitID + "|" + l.SessionDate + "|" + l.ScheduledTime
 					}
-					// sender_id NULL is deliberate — see patrolSenderName: leaving the patroller's
-					// id here would render "Mr. QA Monitor".
-					insertPatrolAlert(r, conn, tenantID, subject, bodyTxt, action, actionRef, lecUser)
+					// Claim-then-send (patrol_absent_alert.go): the same verdict re-synced — the
+					// phone retrying its queue, a monitor re-ticking without changing the finding —
+					// must not land a second copy of the same accusation. A CORRECTED verdict is a
+					// new key and a fresh message.
+					if claimPatrolVerdict(r.Context(), conn, tenantID,
+						patrolVerdictKey(l.UnitID, l.SessionDate, l.ScheduledTime, l.OfferingID, l.Taught),
+						l.SessionDate, lecUser) {
+						// sender_id NULL is deliberate — see patrolSenderName: leaving the patroller's
+						// id here would render "Mr. QA Monitor".
+						insertPatrolAlert(r, conn, tenantID, subject, bodyTxt, action, actionRef, lecUser)
+					}
 				}
 
 				// A lecture found away from its published slot is news to more people than

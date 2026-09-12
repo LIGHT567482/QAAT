@@ -27,8 +27,6 @@ object AppState {
     var userId by mutableStateOf<String?>(null)
     var tenantId by mutableStateOf<String?>(null)
     var deviceBindingKey by mutableStateOf<String?>(null)
-    // Light/dark preference (persisted), mirrors the PWA theme toggle.
-    var darkTheme by mutableStateOf(false)
 
     // Coordinator identity for the top bar + profile popup + welcome message.
     var coordinatorName by mutableStateOf<String?>(null)

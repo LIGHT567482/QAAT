@@ -9,10 +9,16 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/prometheus/client_golang v1.24.1
+	github.com/qaat/attendance v0.0.0
 	github.com/redis/go-redis/v9 v9.22.0
 	golang.org/x/crypto v0.54.0
 	golang.org/x/time v0.15.0
 )
+
+// The shared U-Panel attendance verifier (backend/internal/attendance), used by
+// both the online (api-gateway) and offline (sync-receiver) check-in paths so
+// the two never drift on what "PRESENT" means.
+replace github.com/qaat/attendance => ../internal/attendance
 
 // fpdf@v0.9.0 requires boombuler/barcode@v1.0.1 but only the prerelease is
 // available in the local module cache. The APIs used are identical.

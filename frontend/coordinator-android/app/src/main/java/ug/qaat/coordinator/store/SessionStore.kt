@@ -140,10 +140,6 @@ object SessionStore {
     fun classWifiSsid(): String = if (::prefs.isInitialized) prefs.getString("class_ssid", "") ?: "" else ""
     fun classWifiPass(): String = if (::prefs.isInitialized) prefs.getString("class_pass", "") ?: "" else ""
 
-    // Light/dark preference — persisted so the chosen theme survives restarts.
-    fun saveTheme(dark: Boolean) { if (::prefs.isInitialized) prefs.edit().putBoolean("dark", dark).apply() }
-    fun restoreTheme() { if (::prefs.isInitialized) AppState.darkTheme = prefs.getBoolean("dark", false) }
-
     // Backend URL override (so the coordinator can point the SAME build at the local server
     // for testing or the cloud domain for production, without rebuilding).
     fun saveServerUrl(url: String?) { if (::prefs.isInitialized) prefs.edit().putString("server_url", url?.trim()).apply() }

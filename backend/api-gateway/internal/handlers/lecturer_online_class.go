@@ -405,6 +405,9 @@ func EndOnlineClass(adminPool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 
+		// Tell the students who did not check in. Best-effort — the close already happened.
+		_ = notifyAbsentStudents(r.Context(), adminPool, sessionID, tenantID)
+
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"status": "ENDED", "session_id": sessionID,
 			"present": attended, "enrolled": enrolled,

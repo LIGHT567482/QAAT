@@ -82,8 +82,7 @@ fun StudentRoleApp() {
     LaunchedEffect(tab, reloadKey) { runCatching { unread = NotificationClient().unread() } }
 
     Scaffold(
-        containerColor = (if (!AppState.darkTheme) appBackgroundColor(AppState.branding) else null)
-            ?: MaterialTheme.colorScheme.background,
+        containerColor = appBackgroundColor(AppState.branding) ?: MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 colors = if (navColor != null) TopAppBarDefaults.topAppBarColors(
@@ -91,14 +90,9 @@ fun StudentRoleApp() {
                 ) else TopAppBarDefaults.topAppBarColors(),
                 title = { BrandHeader(AppState.branding) },
                 actions = {
-                    // Refresh + light/dark toggle, matching the coordinator app's top bar.
+                    // Refresh, matching the coordinator app's top bar.
                     IconButton(onClick = { reloadKey++ }) {
                         BarIcon(NavIcons.Sync, "Refresh", onNav ?: MaterialTheme.colorScheme.primary)
-                    }
-                    IconButton(onClick = { AppState.darkTheme = !AppState.darkTheme; SessionStore.saveTheme(AppState.darkTheme) }) {
-                        BarIcon(if (AppState.darkTheme) NavIcons.LightMode else NavIcons.DarkMode,
-                            if (AppState.darkTheme) "Switch to light theme" else "Switch to dark theme",
-                            onNav ?: MaterialTheme.colorScheme.primary)
                     }
                 },
             )

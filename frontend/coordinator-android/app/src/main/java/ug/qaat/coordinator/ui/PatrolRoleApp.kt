@@ -78,8 +78,7 @@ fun PatrolRoleApp() {
     DeviceGate {
       PatrolPinGate {
         Scaffold(
-            containerColor = (if (!AppState.darkTheme) appBackgroundColor(AppState.branding) else null)
-                ?: MaterialTheme.colorScheme.background,
+            containerColor = appBackgroundColor(AppState.branding) ?: MaterialTheme.colorScheme.background,
             topBar = {
                 TopAppBar(
                     colors = if (navColor != null) TopAppBarDefaults.topAppBarColors(
@@ -93,11 +92,6 @@ fun PatrolRoleApp() {
                     actions = {
                         IconButton(onClick = { reloadKey++ }) {
                             BarIcon(NavIcons.Sync, "Refresh", onNav ?: MaterialTheme.colorScheme.primary)
-                        }
-                        IconButton(onClick = { AppState.darkTheme = !AppState.darkTheme; SessionStore.saveTheme(AppState.darkTheme) }) {
-                            BarIcon(if (AppState.darkTheme) NavIcons.LightMode else NavIcons.DarkMode,
-                                if (AppState.darkTheme) "Switch to light theme" else "Switch to dark theme",
-                                onNav ?: MaterialTheme.colorScheme.primary)
                         }
                     },
                 )

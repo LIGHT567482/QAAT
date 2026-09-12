@@ -59,8 +59,10 @@ import OrgOverview from './pages/shared/OrgOverview'
 import AdminAudit from './pages/admin/AdminAudit'
 import OrgDepartments from './pages/shared/OrgDepartments'
 import Inbox from './pages/shared/Inbox'
-// DEFERRED TO V2 — the page is retained and still compiles; only its route is suspended.
-// import CheckinAttempts from './pages/shared/CheckinAttempts'
+// Re-enabled with the student phone check-in (§5.7 U-Panel migration): the attempts
+// log is the evidence behind every refused check-in from geo-checkin/offline-batch.
+import CheckinAttempts from './pages/shared/CheckinAttempts'
+import PendingSync from './pages/shared/PendingSync'
 
 export default function App() {
   return (
@@ -84,9 +86,8 @@ export default function App() {
                         {/* U-PANEL INTEGRATION: DEFERRED TO V2 — original route kept below for restore. */}
                         <Route path="/vc/upanel-attendance" element={<DeferredToV2 module="upanel" />} />
                         {/* <Route path="/vc/upanel-attendance"   element={<Navigate to="/vc/student-attendance" replace />} /> */}
-            {/* STUDENT MODULE: DEFERRED TO V2 — original route kept below for restore. */}
-            <Route path="/vc/checkin-attempts" element={<DeferredToV2 />} />
-            {/* <Route path="/vc/checkin-attempts"    element={<CheckinAttempts />} /> */}
+            <Route path="/vc/checkin-attempts"    element={<CheckinAttempts />} />
+            <Route path="/vc/pending-sync"        element={<PendingSync />} />
             {/* Read-only: the VC does not build the schedule, but every figure on the pages
                 above is measured against it, and having to ask someone for it is friction on
                 exactly the question the dashboard exists to answer. */}
@@ -116,9 +117,8 @@ export default function App() {
                         {/* U-PANEL INTEGRATION: DEFERRED TO V2 — original route kept below for restore. */}
                         <Route path="/dqa/upanel-attendance" element={<DeferredToV2 module="upanel" />} />
                         {/* <Route path="/dqa/upanel-attendance"   element={<Navigate to="/dqa/student-attendance" replace />} /> */}
-            {/* STUDENT MODULE: DEFERRED TO V2 — original route kept below for restore. */}
-            <Route path="/dqa/checkin-attempts" element={<DeferredToV2 />} />
-            {/* <Route path="/dqa/checkin-attempts"    element={<CheckinAttempts />} /> */}
+            <Route path="/dqa/checkin-attempts"    element={<CheckinAttempts />} />
+            <Route path="/dqa/pending-sync"        element={<PendingSync />} />
             <Route path="/dqa/qa-reports"          element={<QAReports />} />
             {/* The gateway already authorises these roles to read the timetable; there
                 simply was no page, so oversight could not see the week it was judging. */}
@@ -181,9 +181,8 @@ export default function App() {
                         {/* U-PANEL INTEGRATION: DEFERRED TO V2 — original route kept below for restore. */}
                         <Route path="/qa/upanel-attendance" element={<DeferredToV2 module="upanel" />} />
                         {/* <Route path="/qa/upanel-attendance"   element={<Navigate to="/qa/student-attendance" replace />} /> */}
-            {/* STUDENT MODULE: DEFERRED TO V2 — original route kept below for restore. */}
-            <Route path="/qa/checkin-attempts" element={<DeferredToV2 />} />
-            {/* <Route path="/qa/checkin-attempts"    element={<CheckinAttempts />} /> */}
+            <Route path="/qa/checkin-attempts"    element={<CheckinAttempts />} />
+            <Route path="/qa/pending-sync"        element={<PendingSync />} />
             <Route path="/qa/lecturer-attendance" element={<DashLecturerAttendance />} />
             <Route path="/qa/timetable"           element={<Timetable />} />
             <Route path="/qa/free-rooms" element={<FreeRooms />} />
@@ -219,9 +218,8 @@ export default function App() {
                         {/* U-PANEL INTEGRATION: DEFERRED TO V2 — original route kept below for restore. */}
                         <Route path="/admin/upanel-attendance" element={<DeferredToV2 module="upanel" />} />
                         {/* <Route path="/admin/upanel-attendance"   element={<Navigate to="/admin/student-attendance" replace />} /> */}
-            {/* STUDENT MODULE: DEFERRED TO V2 — original route kept below for restore. */}
-            <Route path="/admin/checkin-attempts" element={<DeferredToV2 />} />
-            {/* <Route path="/admin/checkin-attempts"    element={<CheckinAttempts />} /> */}
+            <Route path="/admin/checkin-attempts"    element={<CheckinAttempts />} />
+            <Route path="/admin/pending-sync"        element={<PendingSync />} />
             <Route path="/admin/reports"                                 element={<AdminReports />} />
             {/* STUDENT MODULE: DEFERRED TO V2 — original route kept below for restore. */}
             <Route path="/admin/at-risk" element={<DeferredToV2 />} />

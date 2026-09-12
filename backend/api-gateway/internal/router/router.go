@@ -77,13 +77,12 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 	// student body faster. It was never more than a speed bump — (10, 40) still yielded the
 	// whole roll in minutes — and a rate limit is the wrong tool for that threat. Slowing an
 	// attacker by a few minutes is not worth refusing 98% of legitimate students.
-	// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-	// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-	// lecturer attendance, employee attendance, the QA monitor round, timetable and
-	// reports. Everything that records, reads or serves STUDENT data waits for v2.
-	// Restore by uncommenting; the handler below still compiles and is still tested.
-	// r.With(middleware.PublicIPRateLimit(150, 1500)).
-	// 	Get("/api/v1/student/progress", handlers.StudentProgressByReg(adminPool))
+	// The student's own attendance/eligibility, keyed by reg number. Public read-only
+	// (the single-tenant portal model, rate-limited against enumeration). Restored from
+	// the v2 deferral so a signed-in student's in-app dashboard has a data source —
+	// nothing here writes student data; it reads the same summary the web portal shows.
+	r.With(middleware.PublicIPRateLimit(150, 1500)).
+		Get("/api/v1/student/progress", handlers.StudentProgressByReg(adminPool))
 
 	// Native student app: bind this device to the student's reg number (one-device-one-student,
 	// global) at one-time onboarding. Public; reg + org → tenant, self-scoped on adminPool.
@@ -114,35 +113,48 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 	// code the lecturer read out, not an account session. The burst allowance is generous because
 	// a whole hall registers in the same thirty seconds — a limit tuned for a trickle would throttle
 	// the legitimate stampede and look, from the back row, exactly like the system being down.
-	// ── STUDENT ATTENDANCE TAKING: SUSPENDED ──────────────────────────────
-	// Commented out on request, not deleted. Nothing about the QA monitor round or the
-	// lecturer's own attendance passes through here, and both are deliberately untouched.
-	// Restore by uncommenting the route below; the handler is still compiled and tested.
-	// geo check-in (session code + geofence)
-	// r.With(middleware.PublicIPRateLimit(5, 250)).
-	// Post("/api/v1/attendance/geo-checkin", handlers.GeoCheckin(adminPool))
+	// ── STUDENT PHONE CHECK-IN ─────────────────────────────────────────────
+	// Students check in from THEIR OWN PHONES, U-Panel style: the lecturer opens a
+	// register, reads out the code, and each student types it together with their
+	// registration number while their phone reports its own coordinates. The phone
+	// sends a server-side verifier judgment (code + window + geofence), not a claim.
+	// Public for the same reason the QR check-in was: a student holds a registration
+	// number and a code the lecturer read out, not an account session. Burst 250
+	// because a whole hall registers in the same thirty seconds.
+	r.With(middleware.PublicIPRateLimit(5, 250)).
+		Post("/api/v1/attendance/geo-checkin", handlers.GeoCheckin(adminPool))
+
+	// LIVE HUB CHECK-IN (U-Panel register, migration 109). The in-room hub posts each
+	// student's reg-no + spoken code here, judged by the SHARED verifier
+	// (github.com/qaat/attendance — same engine as the sync-receiver, same verdicts).
+	// Public for the same reason the QR check-in was: a student holds a registration
+	// number and a code the lecturer read out, not an account session. Burst 250 because
+	// a whole hall registers in the same thirty seconds.
+	r.With(middleware.PublicIPRateLimit(5, 250)).
+		Post("/api/v1/attendance/hub-checkin", handlers.HubCheckin(pool, adminPool))
 
 	// Is there a route to the gateway at all? The app asks this BEFORE trying to check in, and
 	// queues locally when it fails. Unauthenticated on purpose: requiring a token would conflate
 	// "no network" with "my session expired", and the app must not queue for the second.
-	// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-	// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-	// lecturer attendance, employee attendance, the QA monitor round, timetable and
-	// reports. Everything that records, reads or serves STUDENT data waits for v2.
-	// Restore by uncommenting; the handler below still compiles and is still tested.
-	// r.With(middleware.PublicIPRateLimit(60, 600)).
-	// 	Get("/api/v1/attendance/ping", handlers.AttendancePing())
+	// ── STUDENT PHONE CHECK-IN ────────────────────────────────────────────
+	// The phone asks this BEFORE a check-in and queues the attempt locally while it
+	// cannot reach the server, so a hall with no signal still records everyone and
+	// drains when connectivity returns (offline-batch below).
+	r.With(middleware.PublicIPRateLimit(60, 600)).
+		Get("/api/v1/attendance/ping", handlers.AttendancePing())
 
 	// The backlog a phone accumulated while it had no signal. Rate limit is per-REQUEST, and one
 	// request carries up to 500 queued check-ins, so a hall that was offline all morning drains in
 	// a handful of calls.
-	// ── STUDENT ATTENDANCE TAKING: SUSPENDED ──────────────────────────────
-	// Commented out on request, not deleted. Nothing about the QA monitor round or the
-	// lecturer's own attendance passes through here, and both are deliberately untouched.
-	// Restore by uncommenting the route below; the handler is still compiled and tested.
-	// offline queue upload — the phone can still queue locally, nothing is accepted here
-	// r.With(middleware.PublicIPRateLimit(5, 60)).
-	// Post("/api/v1/attendance/offline-batch", handlers.OfflineBatchUpload(adminPool))
+	// ── STUDENT PHONE CHECK-IN ────────────────────────────────────────────
+	// The backlog a phone accumulated while it had no signal. Each item is judged at
+	// the moment of CAPTURE (window + geofence against the coordinates the phone
+	// recorded then), and every record arrives flagged captured_offline so a QA
+	// officer can see a lecture that uploaded five minutes after it ended. Rate
+	// limit is per-REQUEST — a hall that was offline all morning drains in a
+	// handful of calls.
+	r.With(middleware.PublicIPRateLimit(5, 60)).
+		Post("/api/v1/attendance/offline-batch", handlers.OfflineBatchUpload(adminPool))
 
 	// Lecturer gate scan is public — authenticated by HMAC-signed QR token issued
 	// by the coordinator. A per-IP limiter blunts brute-force / replay attempts.
@@ -246,9 +258,9 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 		// tick could either record nothing or tick whichever slot looked closest — filing a true
 		// observation under the wrong lecture. /reference feeds the form's pick-lists in one call
 		// (a corridor is where signal is worst); /manual files the record.
-		r.With(middleware.RequireRole(middleware.RolePatroller)).
+		r.With(middleware.RequireRole(middleware.RolePatroller, middleware.RoleCoordinator)).
 			Get("/api/v1/patrol/reference", handlers.PatrolReference(pool))
-		r.With(middleware.RequireRole(middleware.RolePatroller)).
+		r.With(middleware.RequireRole(middleware.RolePatroller, middleware.RoleCoordinator)).
 			Post("/api/v1/patrol/manual", handlers.PatrolManualEntry(pool))
 		// ── THE SECOND ROUND: office by office (migration 106) ────────────────
 		//
@@ -267,6 +279,17 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 			Get("/api/v1/patrol/office/search", handlers.OfficeSearch(pool))
 		r.With(middleware.RequireRole(middleware.RolePatroller)).
 			Post("/api/v1/patrol/office/sync", handlers.OfficeSync(pool))
+		// The offices round's "add an administrator" channel — a presence-gated, ADD-only account
+		// provisioner whose single switch lives on the tenant and is OFF until an administrator
+		// turns it on (see handlers/monitor_add_admin.go). adminPool: it creates a users row the
+		// same way the admin Users page does, which the RLS-bound data plane cannot.
+		r.With(middleware.RequireRole(middleware.RolePatroller)).
+			Get("/api/v1/patrol/office/can-add-admins", handlers.CanMonitorAddAdmins(adminPool))
+		r.With(middleware.RequireRole(middleware.RolePatroller)).
+			Post("/api/v1/patrol/office/add-admin", handlers.MonitorAddAdmin(adminPool))
+		// The coordinator directory a monitor's composer picks ONE coordinator from.
+		r.With(middleware.RequireRole(middleware.RolePatroller)).
+			Get("/api/v1/patrol/coordinators", handlers.PatrolCoordinators(adminPool))
 		// The patroller's SECOND FACTOR (migration 071). The handset binding above proves WHICH
 		// phone; the PIN proves WHO is holding it. Set on the first sign-in, entered on every one
 		// after, before the round will open.
@@ -540,6 +563,13 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 			Get("/api/v1/admin/settings/users-passcode", handlers.GetUsersPasscodeStatus(pool))
 		r.With(middleware.RequireRole(middleware.RoleAdmin)).
 			Put("/api/v1/admin/settings/users-passcode", handlers.PutUsersPasscode(pool))
+
+		// The one switch behind the offices round's "add an administrator": OFF by default, and
+		// only an administrator can turn it on. A monitor sees the flag; they cannot flip it.
+		r.With(middleware.RequireRole(middleware.RoleAdmin)).
+			Get("/api/v1/admin/settings/monitor-add-admins", handlers.GetMonitorAddAdminsSetting(pool))
+		r.With(middleware.RequireRole(middleware.RoleAdmin)).
+			Put("/api/v1/admin/settings/monitor-add-admins", handlers.PutMonitorAddAdminsSetting(pool))
 		r.With(middleware.RequireRole(middleware.RoleAdmin)).
 			Post("/api/v1/admin/settings/users-passcode/verify", handlers.VerifyUsersPasscode(pool))
 		// ── Admin sub-resources (ADMIN). The institution comes from the TOKEN, never the URL,
@@ -775,7 +805,7 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 
 		// Coordinator — close a session (writes gate_close_time + contact_hours)
 		r.With(middleware.RequireRole(middleware.RoleCoordinator)).
-			Post("/api/v1/sessions/{session_id}/close", handlers.CloseSession(pool))
+			Post("/api/v1/sessions/{session_id}/close", handlers.CloseSession(pool, adminPool))
 
 		// Coordinator — generate a signed lecturer gate QR for the active session
 		r.With(middleware.RequireRole(middleware.RoleCoordinator)).
@@ -784,34 +814,14 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 		// Coordinator dashboard (their offering: units+lecturers+schedule, students, last roster)
 		r.With(middleware.RequireRole(middleware.RoleCoordinator)).
 			Get("/api/v1/coordinator/overview", handlers.CoordinatorOverview(pool))
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleCoordinator)).
-		// 	Get("/api/v1/coordinator/students", handlers.CoordinatorStudents(pool))
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleCoordinator)).
-		// 	Get("/api/v1/coordinator/last-roster", handlers.CoordinatorLastRoster(pool))
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleCoordinator)).
-		// 	Get("/api/v1/coordinator/attendance", handlers.CoordinatorAttendance(pool))
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleCoordinator)).
-		// 	Get("/api/v1/coordinator/trends", handlers.CoordinatorTrends(pool))
+		r.With(middleware.RequireRole(middleware.RoleCoordinator)).
+			Get("/api/v1/coordinator/students", handlers.CoordinatorStudents(pool))
+		r.With(middleware.RequireRole(middleware.RoleCoordinator)).
+			Get("/api/v1/coordinator/last-roster", handlers.CoordinatorLastRoster(pool))
+		r.With(middleware.RequireRole(middleware.RoleCoordinator)).
+			Get("/api/v1/coordinator/attendance", handlers.CoordinatorAttendance(pool))
+		r.With(middleware.RequireRole(middleware.RoleCoordinator)).
+			Get("/api/v1/coordinator/trends", handlers.CoordinatorTrends(pool))
 		r.With(middleware.RequireRole(middleware.RoleCoordinator)).
 			Get("/api/v1/coordinator/active-sessions", handlers.CoordinatorActiveSessions(pool))
 
@@ -847,24 +857,25 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 			Post("/api/v1/lecturer/online-class", handlers.StartOnlineClass(adminPool))
 		r.With(middleware.RequireRole(middleware.RoleLecturer)).
 			Post("/api/v1/lecturer/online-class/end", handlers.EndOnlineClass(adminPool))
+		// The U-Panel REGISTER: open/close the in-room register for an attendance list
+		// (migration 109). The LECTURER opens only lists they own or are assigned to;
+		// coordinators, QA and admin may open on a lecturer's behalf. The register's own
+		// session_code is what the class types on the hub (/api/v1/attendance/hub-checkin,
+		// registered public at the top of this router). See lecturer_upanel.go.
+		r.With(middleware.RequireRole(middleware.RoleLecturer, middleware.RoleCoordinator,
+			middleware.RoleQAOfficer, middleware.RoleDQADirector, middleware.RoleAdmin)).
+			Post("/api/v1/lecturer/sessions/open", handlers.LecturerOpenSession(pool, adminPool))
+		r.With(middleware.RequireRole(middleware.RoleLecturer, middleware.RoleCoordinator,
+			middleware.RoleQAOfficer, middleware.RoleDQADirector, middleware.RoleAdmin)).
+			Post("/api/v1/lecturer/sessions/{session_id}/close", handlers.LecturerCloseSession(pool, adminPool))
 		// Lecturer roster & analytics: enrolled/attended students across cohorts, sessions,
 		// and per-session present/absent — all sortable/filterable by the app.
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleLecturer)).
-		// 	Get("/api/v1/lecturer/roster", handlers.LecturerRoster(adminPool))
+		r.With(middleware.RequireRole(middleware.RoleLecturer)).
+			Get("/api/v1/lecturer/roster", handlers.LecturerRoster(adminPool))
 		r.With(middleware.RequireRole(middleware.RoleLecturer)).
 			Get("/api/v1/lecturer/sessions", handlers.LecturerSessions(adminPool))
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleLecturer)).
-		// 	Get("/api/v1/lecturer/sessions/{session_id}/students", handlers.LecturerSessionStudents(adminPool))
+		r.With(middleware.RequireRole(middleware.RoleLecturer)).
+			Get("/api/v1/lecturer/sessions/{session_id}/students", handlers.LecturerSessionStudents(adminPool))
 
 		// ── The lecturer's own side of the patrol record ─────────────────────
 		//
@@ -900,26 +911,29 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 		r.With(middleware.RequireRole(middleware.RoleLecturer)).
 			Get("/api/v1/lecturer/combined-class-code", handlers.LecturerCombinedClassCode(adminPool))
 
-			// ── STUDENT ATTENDANCE TAKING: SUSPENDED ──────────────────────────────
-			// Opening the register minted the code students check in against, so it goes with them.
-			// Commented out on request, not deleted: the handler still compiles and is still tested.
-			// Restore by uncommenting the whole statement below.
-			//
-			// r.With(middleware.RequireRole(middleware.RoleCoordinator, middleware.RoleLecturer,
-			// 	middleware.RoleAdmin, middleware.RoleQAOfficer, middleware.RoleDQADirector)).
-			// 	Post("/api/v1/sessions/{session_id}/open-geo", handlers.OpenGeoSession(adminPool))
+		// ── STUDENT ATTENDANCE TAKING ────────────────────────────────────────
+		// Opening the register mints the code students check in against, so it goes with them.
+		// Restored for the coordinator/lecturer register flow in the phone apps.
+		r.With(middleware.RequireRole(middleware.RoleCoordinator, middleware.RoleLecturer,
+			middleware.RoleAdmin, middleware.RoleQAOfficer, middleware.RoleDQADirector)).
+			Post("/api/v1/sessions/{session_id}/open-geo", handlers.OpenGeoSession(adminPool))
 
 		// The attempt log. Given to the roles who have to answer "I was there and it would not let
 		// me": the lecturer whose register it was, the coordinator who ran it, and QA who arbitrate.
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleCoordinator, middleware.RoleLecturer,
-		// 	middleware.RoleAdmin, middleware.RoleQAOfficer, middleware.RoleDQADirector,
-		// 	middleware.RoleHOD, middleware.RoleDean)).
-		// 	Get("/api/v1/attendance/attempts", handlers.ListCheckinAttempts(adminPool))
+		// Restored with the student phone check-in (§5.7 of the U-Panel migration): every attempt
+		// recorded by geo-checkin and offline-batch, accepted or refused, with the reason and the
+		// distance — the evidence behind a refused check-in the dashboards can now show.
+		r.With(middleware.RequireRole(middleware.RoleCoordinator, middleware.RoleLecturer,
+			middleware.RoleAdmin, middleware.RoleQAOfficer, middleware.RoleDQADirector,
+			middleware.RoleHOD, middleware.RoleDean, middleware.RoleVC, middleware.RoleDVC)).
+			Get("/api/v1/attendance/attempts", handlers.ListCheckinAttempts(adminPool))
+		// Same reader set, same window semantics: the claims still waiting for their session to
+		// open (checkin_attempts.awaiting_session) and the check-ins drained from phone queues
+		// (captured_offline), read out under "pending" / "offline" / "all".
+		r.With(middleware.RequireRole(middleware.RoleCoordinator, middleware.RoleLecturer,
+			middleware.RoleAdmin, middleware.RoleQAOfficer, middleware.RoleDQADirector,
+			middleware.RoleHOD, middleware.RoleDean, middleware.RoleVC, middleware.RoleDVC)).
+			Get("/api/v1/attendance/pending", handlers.ListCheckinPending(adminPool))
 		// Coordinators check a code they were given. Also the QA roles, who get called over when a
 		// register will not open and are the ones who have to work out why.
 		r.With(middleware.RequireRole(middleware.RoleCoordinator, middleware.RoleQAOfficer,
@@ -945,9 +959,11 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 		// send a patroller anything at all, so a reassigned round or a changed room was a phone
 		// call. See the audience map in SendAppNotification — they reach PATROLLERS/PATROLLER,
 		// and the lecturers and coordinators they already oversee.
+		// QA_PATROLLER sender added: a monitor mid-round is allowed to flag, to lecturers and to
+		// the coordinating office, a room they found empty — the alert IS the finding.
 		r.With(middleware.RequireRole(middleware.RoleLecturer, middleware.RoleCoordinator, middleware.RoleHOD,
 			middleware.RoleDean, middleware.RoleQADeptRep, middleware.RoleQASchool,
-			middleware.RoleQAOfficer, middleware.RoleDQADirector)).
+			middleware.RoleQAOfficer, middleware.RoleDQADirector, middleware.RolePatroller)).
 			Post("/api/v1/app-notifications", handlers.SendAppNotification(adminPool))
 		r.With(middleware.RequireRole(inboxRoles...)).
 			Get("/api/v1/app-notifications", handlers.ListAppNotifications(adminPool))
@@ -1005,13 +1021,11 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 		// Restore by uncommenting; the handler below still compiles and is still tested.
 		// r.With(middleware.RequireRole(middleware.RoleDQADirector)).
 		// 	Get("/api/v1/dashboard/dqa/course-health", handlers.DQACourseHealth(pool))
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleDQADirector)).
-		// 	Get("/api/v1/dashboard/dqa/trends", handlers.DQATrends(pool))
+		// Week-by-week attendance trend for the DQA home (DQATrends). Re-enabled with the
+		// student phone check-in (docs/U-PANEL-MIGRATION.md decision A reversal): the home
+		// page already embeds DQATrends, so the route must be answerable.
+		r.With(middleware.RequireRole(middleware.RoleDQADirector)).
+			Get("/api/v1/dashboard/dqa/trends", handlers.DQATrends(pool))
 		r.With(middleware.RequireRole(middleware.RoleDQADirector)).
 			Get("/api/v1/dashboard/dqa/punctuality", handlers.DQAPunctuality(pool))
 		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
@@ -1143,7 +1157,7 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 		attendanceReaders := middleware.RequireRole(
 			middleware.RoleAdmin, middleware.RoleQAOfficer, middleware.RoleVC, middleware.RoleDVC,
 			middleware.RoleDQADirector, middleware.RoleHOD, middleware.RoleDean,
-			middleware.RoleQADeptRep, middleware.RoleQASchool,
+			middleware.RoleQADeptRep, middleware.RoleQASchool, middleware.RoleCoordinator,
 		)
 		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
 		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
