@@ -60,7 +60,7 @@ func DefaultPasswordFor(role string) string {
 		return DefaultStudentPassword
 	case "LECTURER":
 		return DefaultLecturerPassword
-	case "QA_PATROLLER":
+	case "QA_MONITOR":
 		return DefaultMonitorPassword
 	case "COORDINATOR":
 		return DefaultCoordinatorPassword

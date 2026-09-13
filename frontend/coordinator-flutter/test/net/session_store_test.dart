@@ -9,10 +9,10 @@ void main() {
   test('saved session round-trips through the server field names', () async {
     await SessionStore.save(const LoginResult(
       token: 'tok-1',
-      role: 'QA_PATROLLER',
+      role: 'QA_MONITOR',
       userId: 'u1',
       tenantId: 't1',
-      fullName: 'Jane Patroller',
+      fullName: 'Jane Monitor',
       staffId: 'KIU/310',
       deviceBindingKey: 'aGV5',
     ));
@@ -20,7 +20,7 @@ void main() {
     final loaded = await SessionStore.load();
     expect(loaded, isNotNull);
     expect(loaded!.token, 'tok-1');
-    expect(loaded.role, 'QA_PATROLLER');
+    expect(loaded.role, 'QA_MONITOR');
     expect(loaded.staffId, 'KIU/310');
     expect(loaded.deviceBindingKey, 'aGV5');
   });

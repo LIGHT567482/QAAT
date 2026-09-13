@@ -90,7 +90,7 @@ func announceProvisionRoom(ctx context.Context, conn *pgxpool.Conn, tenantID, se
 		SELECT $1, $2, u.user_id
 		  FROM users u
 		 WHERE u.tenant_id = $2 AND COALESCE(u.is_active, true)
-		   AND ( u.role IN ('QA_PATROLLER','QA_OFFICER','DQA_DIRECTOR')
+		   AND ( u.role IN ('QA_MONITOR','DQA_DIRECTOR')
 		      OR u.user_id IN (SELECT l.user_id
 		                         FROM lecturers l
 		                         JOIN lecturer_assignments la ON la.lecturer_id = l.lecturer_id

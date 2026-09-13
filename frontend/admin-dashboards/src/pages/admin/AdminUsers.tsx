@@ -3,14 +3,14 @@ import { useParams } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { roleLabel, roleLabelLower } from '../../lib/roleLabel'
 import PasswordInput from '../../components/PasswordInput'
-import { OrgPicker, useOrg } from '../../components/OrgPicker'
+import { OrgPicker, useOrg, type OrgSchool } from '../../components/OrgPicker'
 import { useQuery } from '../../lib/useApi'
 
 // The Users page manages the oversight roles only — coordinators have their own
 // directory (Coordinators) and students their own page.
 const ROLES = [
-  'ADMIN', 'VC', 'DVC', 'QA_OFFICER', 'DQA_DIRECTOR',
-  'DEAN', 'HOD', 'QA_SCHOOL_HANDLER', 'QA_DEPT_REP', 'QA_PATROLLER',
+  'ADMIN', 'VC', 'DVC', 'QA_MONITOR', 'DQA_DIRECTOR',
+  'DEAN', 'HOD', 'QA_DEPT_REP',
   // Teaching & Learning Centre — maintains the timetable.
   'TLC',
 ] as const
@@ -22,15 +22,14 @@ const MANAGED_ROLES = new Set<string>(ROLES)
 // one for the whole institution, and the department on the account is what confines them to their
 // own department's timetable. Left blank the account is institution-wide, which is what every TLC
 // created before 083 is — so this is required on the form for new ones, not enforced retroactively.
-const NEEDS_DEPARTMENT = new Set(['QA_OFFICER', 'HOD', 'QA_DEPT_REP', 'TLC'])
-const NEEDS_SCHOOL = new Set(['DEAN', 'QA_SCHOOL_HANDLER'])
+const NEEDS_DEPARTMENT = new Set(['HOD', 'QA_DEPT_REP', 'TLC'])
+const NEEDS_SCHOOL = new Set(['DEAN'])
 
 const SCOPE_HINT: Record<string, string> = {
-  QA_OFFICER:        'QA officers are placed under a department — required.',
+  QA_MONITOR:        'QA monitors patrol rooms and file QA reports. They cover the schools you assign them on the Users list — with none assigned, the whole institution.',
   HOD:               'A head of department sees exactly one department — required.',
   QA_DEPT_REP:       'A QA department rep files reports for one department — required.',
   DEAN:              'A dean oversees exactly one college/school — required.',
-  QA_SCHOOL_HANDLER: 'A QA school handler files reports for one college/school — required.',
   TLC:               'A Teaching & Learning Centre officer designs the timetable for ONE department — required. They can read the whole institution\u2019s timetable (rooms are shared) but may only change their own department\u2019s.',
 }
 
@@ -66,7 +65,7 @@ function UsersInner() {
 
   const SEEDED_DEFAULTS: Record<string, string> = {
     LECTURER: 'lecturer',
-    QA_PATROLLER: 'monitor',
+    QA_MONITOR: 'monitor',
     COORDINATOR: 'coordinator',
   }
 
@@ -76,6 +75,7 @@ function UsersInner() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [issuedCode, setIssuedCode] = useState<string | null>(null)
+  const [assignUser, setAssignUser] = useState<User | null>(null)
 
   // ── Bulk import / export ───────────────────────────────────────────────────
   // Standing an institution up means entering every dean, head of department and QA officer, and
@@ -363,6 +363,11 @@ function UsersInner() {
               </td>
               <td style={{ padding: '10px 12px' }}>
                 <div style={{ display: 'flex', gap: 6 }}>
+                  {u.role === 'QA_MONITOR' && (
+                    <button onClick={() => setAssignUser(u)} style={{ padding: '3px 8px', border: '1px solid #e2e8f0', borderRadius: 4, cursor: 'pointer', fontSize: 11, background: '#fff' }} title="Assign the schools this QA monitor covers — none means the whole institution">
+                      Schools
+                    </button>
+                  )}
                   <button onClick={() => toggleStatus(u)} style={{ padding: '3px 8px', border: '1px solid #e2e8f0', borderRadius: 4, cursor: 'pointer', fontSize: 11, background: '#fff' }}>
                     {u.is_active ? 'Deactivate' : 'Activate'}
                   </button>
@@ -375,6 +380,92 @@ function UsersInner() {
           ))}
         </tbody>
       </table>
+
+      {assignUser && (
+        <MonitorSchoolsModal
+          user={assignUser}
+          schools={org.schools}
+          onClose={() => setAssignUser(null)}
+          onSaved={() => { setAssignUser(null); refetch() }}
+        />
+      )}
+    </div>
+  )
+}
+
+// Bounds the QA monitor's dashboards and reports to the schools the admin checks here.
+// No schools = the monitor covers the whole institution (by design), which is also what
+// clearing the boxed set restores — so an empty save is valid, not an error.
+function MonitorSchoolsModal({ user, schools, onClose, onSaved }: {
+  user: User; schools: OrgSchool[]; onClose: () => void; onSaved: () => void
+}) {
+  const [checked, setChecked] = useState<string[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [ok, setOk] = useState(false)
+
+  useEffect(() => {
+    api.get<{ schools: { school_id: string }[] }>(`/api/v1/admin/users/${user.user_id}/monitor-schools`)
+      .then(r => setChecked((r.schools ?? []).map(s => s.school_id)))
+      .catch(e => setErr(e instanceof Error ? e.message : 'Could not load assignment'))
+      .finally(() => setLoaded(true))
+  }, [user.user_id])
+
+  async function save() {
+    setBusy(true); setErr(null); setOk(false)
+    try {
+      await api.put(`/api/v1/admin/users/${user.user_id}/monitor-schools`, { school_ids: checked })
+      setOk(true)
+      setTimeout(onSaved, 900)
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Could not save assignment') }
+    finally { setBusy(false) }
+  }
+
+  const toggle = (id: string) => setChecked(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }}
+      onClick={e => { if (e.target === e.currentTarget && !busy) onClose() }}>
+      <div style={{ background: '#fff', borderRadius: 14, padding: 24, maxWidth: 520, width: '100%', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 50px rgba(0,0,0,.2)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h3 style={{ margin: '0 0 2px' }}>School coverage — {user.full_name}</h3>
+            <p style={{ color: 'var(--muted)', fontSize: 13, margin: '0 0 14px' }}>
+              QA monitors see only the schools checked here. With none checked they cover the whole institution.
+            </p>
+          </div>
+          <button onClick={onClose} disabled={busy} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 20, color: '#64748b', lineHeight: 1 }}>×</button>
+        </div>
+
+        {err && <div style={{ background: '#fef2f2', color: '#b91c1c', padding: '8px 12px', borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
+        {ok && <div style={{ background: '#f0fdf4', color: '#166534', padding: '8px 12px', borderRadius: 6, marginBottom: 12, fontSize: 13 }}>Saved.</div>}
+
+        {!loaded ? (
+          <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</p>
+        ) : schools.length === 0 ? (
+          <p style={{ fontSize: 13, color: '#b45309' }}>No schools configured in this institution yet — this monitor therefore covers everything. Create schools on the Schools &amp; Departments page to bound them.</p>
+        ) : (
+          <>
+            <div style={{ display: 'grid', gap: 2 }}>
+              {schools.map(s => {
+                const on = checked.includes(s.school_id)
+                return (
+                  <label key={s.school_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: 'pointer', background: on ? '#f0fdf4' : 'transparent', fontSize: 14 }}>
+                    <input type="checkbox" checked={on} onChange={() => toggle(s.school_id)} />
+                    {s.abbreviation ? `${s.abbreviation} — ${s.name}` : s.name}
+                  </label>
+                )
+              })}
+            </div>
+            <button onClick={() => setChecked([])} style={{ ...btnGhost, marginTop: 10, fontSize: 12, padding: '5px 10px' }}>Clear all (whole institution)</button>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button onClick={onClose} disabled={busy} style={btnGhost}>{busy ? 'Saving…' : 'Cancel'}</button>
+              <button onClick={save} disabled={busy} style={btn}>{busy ? 'Saving…' : 'Save coverage'}</button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -598,14 +689,12 @@ function roleColor(role: string) {
     VC:          { bg: '#fef3c7', text: '#92400e' },
     DVC:         { bg: '#ffedd5', text: '#9a3412' },
     DQA_DIRECTOR:{ bg: '#e0e7ff', text: '#3730a3' },
-    QA_OFFICER:  { bg: '#f0fdf4', text: '#166534' },
+    QA_MONITOR:  { bg: '#f0fdf4', text: '#166534' },
     COORDINATOR: { bg: '#f0f9ff', text: '#0369a1' },
     ADMIN:       { bg: '#fce7f3', text: '#9d174d' },
     DEAN:              { bg: '#ede9fe', text: '#5b21b6' },
     HOD:               { bg: '#f3e8ff', text: '#6b21a8' },
-    QA_SCHOOL_HANDLER: { bg: '#ecfeff', text: '#155e75' },
     QA_DEPT_REP:       { bg: '#f0fdfa', text: '#115e59' },
-    QA_PATROLLER:      { bg: '#fef2f2', text: '#991b1b' },
   }
   return map[role] ?? { bg: '#f1f5f9', text: '#475569' }
 }

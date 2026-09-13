@@ -28,27 +28,27 @@ import QAMonitorBriefing from '../qa/QAMonitorBriefing'
  * the router exactly:
  *
  *   Alerts    — inboxRoles in router.go: everyone with a dashboard except TLC.
- *   Messages  — DQA_DIRECTOR, QA_OFFICER, QA_DEPT_REP, QA_SCHOOL_HANDLER.
- *   Monitors  — the two roles that RUN the round and can brief it.
+ *   Messages  — DQA_DIRECTOR, QA_MONITOR, QA_DEPT_REP.
+ *   Monitors  — the roles that RUN the round and can brief it.
  *
  * TLC is deliberately absent from all three: it is not in inboxRoles, so the Teaching & Learning
  * Centre has no inbox to show and gets no entry rather than an empty page.
  */
 
 // Mirrors `inboxRoles` in backend/api-gateway/internal/router/router.go, intersected with the
-// roles that actually have a web sidebar. STUDENT, COORDINATOR, LECTURER and QA_PATROLLER are in
-// that list too but read the same inbox on the phone; DVC is in it on the server and is not part
-// of this app's Role union at all.
+// roles that actually have a web sidebar. STUDENT, COORDINATOR and LECTURER are in that list too
+// but read the same inbox on the phone; DVC is in it on the server and is not part of this app's
+// Role union at all.
 const ALERT_ROLES: Role[] = [
-  'VC', 'DQA_DIRECTOR', 'QA_OFFICER', 'HOD', 'DEAN',
-  'QA_DEPT_REP', 'QA_SCHOOL_HANDLER', 'ADMIN',
+  'VC', 'DQA_DIRECTOR', 'QA_MONITOR', 'HOD', 'DEAN',
+  'QA_DEPT_REP', 'ADMIN',
 ]
 
 // Mirrors the RequireRole set on /api/v1/messages.
-const MESSAGE_ROLES: Role[] = ['DQA_DIRECTOR', 'QA_OFFICER', 'QA_DEPT_REP', 'QA_SCHOOL_HANDLER']
+const MESSAGE_ROLES: Role[] = ['DQA_DIRECTOR', 'QA_MONITOR', 'QA_DEPT_REP']
 
 // Who may brief the monitors walking the round.
-const MONITOR_BRIEF_ROLES: Role[] = ['DQA_DIRECTOR', 'QA_OFFICER']
+const MONITOR_BRIEF_ROLES: Role[] = ['DQA_DIRECTOR', 'QA_MONITOR']
 
 export default function Inbox() {
   const { user } = useAuth()
@@ -67,7 +67,7 @@ export default function Inbox() {
     tabs.push({
       id: 'messages',
       label: 'Messages',
-      hint: 'The QA channel, with attachments. Between the directorate and QA officers.',
+      hint: 'The QA channel, with attachments. Between the directorate and QA monitors.',
       render: () => <Messages />,
     })
   }

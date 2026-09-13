@@ -109,7 +109,7 @@ func insertPatrolAlert(r *http.Request, conn *pgxpool.Conn, tenantID, subject, b
 	var nid string
 	if conn.QueryRow(r.Context(), `
 		INSERT INTO app_notifications (tenant_id, sender_id, sender_name, sender_role, audience, subject, body, action, action_ref)
-		VALUES ($1, NULL, $2, 'QA_PATROLLER', 'DIRECT', $3, $4, NULLIF($5,''), NULLIF($6,'')) RETURNING notification_id::text`,
+		VALUES ($1, NULL, $2, 'QA_MONITOR', 'DIRECT', $3, $4, NULLIF($5,''), NULLIF($6,'')) RETURNING notification_id::text`,
 		tenantID, patrolSenderName, subject, bodyTxt, action, actionRef).Scan(&nid) == nil {
 		_, _ = conn.Exec(r.Context(),
 			`INSERT INTO notification_recipients (notification_id, tenant_id, recipient_user_id)

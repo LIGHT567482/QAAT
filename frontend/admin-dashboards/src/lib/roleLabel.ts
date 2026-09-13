@@ -1,20 +1,20 @@
 /**
  * What each role is CALLED, as distinct from what it is stored as.
  *
- * The stored value of the monitor role is still `QA_PATROLLER`. Renaming a database enum means
- * rewriting every row that references it, invalidating every signed token that carries it, and
- * shipping a new build to every handset already in the field — three ways to lock people out of a
- * live system in exchange for a word. The word is what people actually see, so the word is what
- * changes here, in one place, and every screen reads it from here.
+ * The QA officer, patroller and school-handler roles were merged into a single `QA_MONITOR`
+ * (migration 110). Accounts now store and are issued that one value; the legacy labels below are
+ * kept only so a stale session persisted under an old token still renders a name instead of a raw
+ * enum.
  *
  * Anything not listed falls back to the underscore-free form, which is right for ADMIN, VC, DEAN
  * and the rest.
  */
 const LABELS: Record<string, string> = {
+  QA_MONITOR:        'QA Monitor',
   QA_PATROLLER:      'QA Monitor',
-  QA_OFFICER:        'QA Officer',
+  QA_OFFICER:        'QA Monitor',
+  QA_SCHOOL_HANDLER: 'QA Monitor',
   QA_DEPT_REP:       'QA Dept Rep',
-  QA_SCHOOL_HANDLER: 'QA School Handler',
   DQA_DIRECTOR:      'DQA Director',
   HOD:               'Head of Department',
   TLC:               'Teaching & Learning Centre',

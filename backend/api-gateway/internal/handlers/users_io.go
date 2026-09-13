@@ -124,9 +124,10 @@ func ImportUsers(adminPool *pgxpool.Pool) http.HandlerFunc {
 			school := cell(row, idx, "school")
 			// The same scope rule the form enforces, for the same reason: these roles' dashboards
 			// ARE the department or school on the account, so one without it is an account that
-			// opens onto nothing.
+			// opens onto nothing. A QA MONITOR is deliberately not in either branch — its scope
+			// is the schools an admin assigns (qa_monitor_schools), which may be none.
 			switch role {
-			case "QA_OFFICER", "HOD", "QA_DEPT_REP":
+			case "HOD", "QA_DEPT_REP":
 				if dept == "" {
 					res.Skipped++
 					res.Errors = append(res.Errors, fmt.Sprintf(
@@ -134,7 +135,7 @@ func ImportUsers(adminPool *pgxpool.Pool) http.HandlerFunc {
 						ln, humanRole(role)))
 					continue
 				}
-			case "DEAN", "QA_SCHOOL_HANDLER":
+			case "DEAN":
 				if school == "" {
 					res.Skipped++
 					res.Errors = append(res.Errors, fmt.Sprintf(

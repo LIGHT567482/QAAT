@@ -16,7 +16,7 @@
 #     offering_unit_schedules, while /patrol/manifest and /patrol/search read only
 #     timetable_slots. The lecture was accepted, displayed, locked… and unpatrollable
 #
-# Usage:  ./deletes_briefing_and_patrol_test.sh        (against https://localhost:8443)
+# Usage:  ./deletes_briefing_and_monitor_test.sh        (against https://localhost:8443)
 # Seeds and removes its own DELT-/BRIEF- fixtures via the postgres container.
 set -uo pipefail
 BASE="${1:-https://localhost:8443}"; PG="${PG_CONTAINER:-infra-postgres-1}"; pass=0; fail=0
@@ -49,9 +49,9 @@ docker exec -i "$PG" psql -U qaat -d qaat -q -v ON_ERROR_STOP=1 >/dev/null <<SQL
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 INSERT INTO users (tenant_id, email, password_hash, role, full_name, is_active, staff_id, force_password_change) VALUES
  ('$TEN','delt.admin@kiu.ac.ug', crypt('AdmPass12345', gen_salt('bf',10)),'ADMIN',       'DelTest Admin',    true,'DELT-ADM',false),
- ('$TEN','brief.qa@kiu.ac.ug',   crypt('QaPass12345',  gen_salt('bf',10)),'QA_OFFICER',  'BriefTest QA',     true,'BRIEF-QA',false),
+ ('$TEN','brief.qa@kiu.ac.ug',   crypt('QaPass12345',  gen_salt('bf',10)),'QA_MONITOR',  'BriefTest QA',     true,'BRIEF-QA',false),
  ('$TEN','brief.dqa@kiu.ac.ug',  crypt('DqaPass12345', gen_salt('bf',10)),'DQA_DIRECTOR','BriefTest DQA',    true,'BRIEF-DQA',false),
- ('$TEN','brief.p1@kiu.ac.ug',   crypt('PatPass12345', gen_salt('bf',10)),'QA_PATROLLER','BriefTest Patrol', true,'BRIEF-P1',false),
+ ('$TEN','brief.p1@kiu.ac.ug',   crypt('PatPass12345', gen_salt('bf',10)),'QA_MONITOR',  'BriefTest Monitor', true,'BRIEF-P1',false),
  ('$TEN','delt.lect@kiu.ac.ug',  crypt('LecPass12345', gen_salt('bf',10)),'LECTURER',    'DelTest Lecturer', true,'DELT-001',false);
 INSERT INTO courses (course_id, tenant_id, name) VALUES ('DELTEST-COURSE','$TEN','Delete Test Course');
 INSERT INTO course_units (unit_id, tenant_id, course_id, name)
@@ -128,7 +128,7 @@ R=$(body POST "/api/v1/admin/tenants/$TEN/lecturers/bulk-delete" "$ADM" "{\"lect
 has  "bulk delete removes both"            '"deleted":2' "$R"
 check "neither is left"                    "$(sql "SELECT count(*) FROM lecturers WHERE staff_id IN ('DELT-002','DELT-003')")" "0"
 
-echo; echo "── 2. QA/DQA messaging the patrollers — no route may answer 404 ──"
+echo; echo "── 2. QA/DQA messaging the monitors — no route may answer 404 ──"
 for pair in "GET|/api/v1/dashboard/qa/patrollers|$QA" "GET|/api/v1/dashboard/qa/patrollers|$DQA" \
             "GET|/api/v1/app-notifications|$P1" "GET|/api/v1/app-notifications/unread-count|$P1"; do
   IFS='|' read -r M P T <<<"$pair"
@@ -136,12 +136,12 @@ for pair in "GET|/api/v1/dashboard/qa/patrollers|$QA" "GET|/api/v1/dashboard/qa/
   if [ "$C" = "404" ]; then echo "   ✗ $M $P answered 404 — this gateway does not carry the feature"; fail=$((fail+1));
   else echo "   ✓ $M $P → $C"; pass=$((pass+1)); fi
 done
-R=$(body POST /api/v1/app-notifications "$QA" '{"audience":"PATROLLERS","target_id":"","subject":"BRIEFTEST round change","body":"Start at the Science block."}')
-hasnt "QA can send to every patroller"     'HTTP 404' "$R"
+R=$(body POST /api/v1/app-notifications "$QA" '{"audience":"MONITORS","target_id":"","subject":"BRIEFTEST round change","body":"Start at the Science block."}')
+hasnt "QA can send to every monitor"      'HTTP 404' "$R"
 has   "…and it is SENT"                    '"status":"SENT"' "$R"
-has   "the patroller has it"               'BRIEFTEST round change' "$(body GET /api/v1/app-notifications "$P1")"
-R=$(body POST /api/v1/app-notifications "$DQA" '{"audience":"PATROLLER","target_id":"BRIEF-P1","subject":"BRIEFTEST handset","body":"Swap it at the QA office."}')
-has   "DQA can address one patroller"      '"recipients":1' "$R"
+has   "the monitor has it"               'BRIEFTEST round change' "$(body GET /api/v1/app-notifications "$P1")"
+R=$(body POST /api/v1/app-notifications "$DQA" '{"audience":"MONITOR","target_id":"BRIEF-P1","subject":"BRIEFTEST handset","body":"Swap it at the QA office."}')
+has   "DQA can address one monitor"      '"recipients":1' "$R"
 NID=$(body GET /api/v1/app-notifications "$P1" | python3 -c "import json,sys;print(next((n['notification_id'] for n in json.load(sys.stdin) if n['subject']=='BRIEFTEST handset'),''))")
 check "marking it read is not a 404"       "$(code POST "/api/v1/app-notifications/$NID/read" "$P1" '{}')" "200"
 check "dismissing it is not a 404"         "$(code DELETE "/api/v1/app-notifications/$NID" "$P1")" "200"

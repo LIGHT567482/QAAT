@@ -8,13 +8,13 @@ import { useQuery } from '../lib/useApi'
 
 /**
  * THE OVERVIEW'S CHARTS, shared by every oversight role: the DQA director, the VC, the tenant
- * admin, QA officers, deans and heads of department.
+ * admin, QA monitors, deans and heads of department.
  *
  * One component for all of them because the DATA is already one endpoint: /api/v1/org/analytics
  * resolves the caller's own college or department from their account, so a dean's charts cover
  * their college and the directorate's cover the institution without either page knowing which.
- * VC, ADMIN and QA_OFFICER sit in the same reader set (orgDashRoles) and see the institution
- * whole, just as the DQA does.
+ * VC, ADMIN and QA_MONITOR sit in the same reader set (orgDashRoles) and see the institution
+ * whole — the monitor when no college is assigned, the others always.
  *
  * WHY THESE THREE FORMS. Each was chosen from the job the reader has, not from a wish for variety:
  *

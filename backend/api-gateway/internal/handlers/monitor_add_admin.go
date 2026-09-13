@@ -24,7 +24,7 @@ package handlers
 //     account cannot do anything until that first sign-in happens.
 //
 // The office round already partners the monitor's presence with a live rotating code, but the
-// create itself is a QA_PATROLLER-role request behind the switch — the PATROLLER role gate plus
+// create itself is a QA_MONITOR-role request behind the switch — the QA_MONITOR role gate plus
 // the per-tenant switch is the whole check.
 
 import (
@@ -38,7 +38,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// GET /api/v1/patrol/office/can-add-admins — QA_PATROLLER.
+// GET /api/v1/patrol/office/can-add-admins — QA_MONITOR.
 //
 // Answers the single question the offices round needs: "is the institution allowing me to create
 // an administrator from here?" The answer is the tenant switch, nothing more.
@@ -64,7 +64,7 @@ func CanMonitorAddAdmins(pool *pgxpool.Pool) http.HandlerFunc {
 	}
 }
 
-// POST /api/v1/patrol/office/add-admin — QA_PATROLLER + tenant switch.
+// POST /api/v1/patrol/office/add-admin — QA_MONITOR + tenant switch.
 //
 // Creates one ADMINISTRATOR account. Full name and email are required; department is optional
 // and names the office. The account is active immediately and starts on the public staff default,
@@ -154,12 +154,12 @@ func MonitorAddAdmin(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusOK, map[string]string{
-			"status":          "ADMIN_CREATED",
-			"user_id":         userID,
-			"email":           req.Email,
-			"role":            role,
+			"status":           "ADMIN_CREATED",
+			"user_id":          userID,
+			"email":            req.Email,
+			"role":             role,
 			"default_password": password,
-			"message":         "Administrator created. They sign in once with this email and the word \"" + password + "\", and must replace it at first sign-in.",
+			"message":          "Administrator created. They sign in once with this email and the word \"" + password + "\", and must replace it at first sign-in.",
 		})
 	}
 }

@@ -5,13 +5,15 @@ import { useAuth } from '../../contexts/AuthContext'
 
 // Dashboards for the two org-scoped QA roles:
 //
-//   QA_DEPT_REP        — one department  (/qa-dept, /qa-dept/report)
-//   QA_SCHOOL_HANDLER  — one school      (/qa-school, /qa-school/lecturers, /qa-school/reports)
+//   QA_DEPT_REP  — one department  (/qa-dept, /qa-dept/report)
+//   QA_MONITOR   — assigned schools (migration 110), or the whole institution when none are
+//                  assigned (/qa-school, /qa-school/lecturers, /qa-school/reports)
 //
 // Both see the same data through different lenses, so the three views below are shared and the
-// scope comes from the server (the caller's own user record), never from the page. The reports view
-// is where a rep uploads the monitoring workbook they already fill in by hand: the recognised rows
-// become teaching observations and the workbook itself is kept as the evidence behind them.
+// scope comes from the server (the caller's own user record + their qa_monitor_schools rows),
+// never from the page. The reports view is where a monitor uploads the monitoring workbook they
+// already fill in by hand: the recognised rows become teaching observations and the workbook
+// itself is kept as the evidence behind them.
 
 interface Scope {
   role: string; scope_kind: string; department: string; school: string
@@ -56,17 +58,23 @@ interface LecturersResp { scope: { department: string; school: string }; lecture
 
 export function QAOrgLecturers() {
   const { user } = useAuth()
-  const bySchool = user?.role === 'QA_SCHOOL_HANDLER'
+  // QA_DEPT_REP is the only role whose scope is a department; the QA monitor's scope is the
+  // schools an admin assigned (or the whole institution when none are). The server's own answer
+  // drives the wording, not the role name, so an unassigned monitor is called "the institution"
+  // rather than "your school".
   const scope = useScope()
+  const kind = scope.data?.scope.scope_kind
   const { status, data } = useQuery<LecturersResp>(() => api.get('/api/v1/qa-rep/lecturers'), [])
   const rows = data?.lecturers ?? []
+  const byDept = user?.role === 'QA_DEPT_REP'
+  const bySchool = !byDept
   const scopeLabel = scope.data?.label || (bySchool ? 'your school' : 'your department')
   const [compose, setCompose] = useState<null | { audience: string; target?: string; who: string }>(null)
 
   return (
     <div>
       <ScopeHeader
-        title={bySchool ? 'School — Lecturer Monitoring' : 'Department — Lecturer Monitoring'}
+        title={byDept ? 'Department — Lecturer Monitoring' : kind === 'ALL' ? 'Institution — Lecturer Monitoring' : 'School — Lecturer Monitoring'}
         subtitle="Taught / observed counts every record this term — the QA monitor's and your own uploads alike."
         scope={scope.data} message={data?.message}
       />
@@ -259,7 +267,7 @@ export function QAOrgReports() {
   )
 }
 
-// QASubmissionsPanel is the read side of the same list, for the oversight roles (QA officer, DQA,
+// QASubmissionsPanel is the read side of the same list, for the oversight roles (QA monitor, DQA,
 // VC, admin) whose own pages embed it. They see every department's filing — the endpoint drops the
 // org filter for an unscoped role — but get no upload box, since they file nothing themselves.
 export function QASubmissionsPanel({ heading }: { heading?: string }) {

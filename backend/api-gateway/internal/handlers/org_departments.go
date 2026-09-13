@@ -2,7 +2,7 @@ package handlers
 
 // The dean's view of the heads of department beneath them.
 //
-//	GET /api/v1/org/departments   (DEAN · QA_SCHOOL_HANDLER · QA_OFFICER · DQA · VC · DVC · ADMIN)
+//	GET /api/v1/org/departments   (DEAN · QA_MONITOR · DQA · VC · DVC · ADMIN)
 //
 // A dean is accountable for a college through its HEADS OF DEPARTMENT, but until now could only see
 // a flat list of every lecturer in the school — the management layer between them was invisible.

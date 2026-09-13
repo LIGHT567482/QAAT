@@ -173,9 +173,9 @@ func notifyOfficeAbsence(r *http.Request, pool *pgxpool.Pool, tenantID, tenantNa
 	subject, body := officeAbsenceMessage(t.Office, t.VisitDate, t.VisitTime)
 	tName, tDomain := tenantBranding(r, pool, tenantID)
 	payload, _ := json.Marshal(map[string]interface{}{
-		"tenant":  tenantName,
-		"subject": subject,
-		"message": body,
+		"tenant":   tenantName,
+		"subject":  subject,
+		"message":  body,
 		"branding": map[string]string{"name": tName, "domain": tDomain},
 		"recipients": []map[string]string{{
 			"name": t.Name, "email": t.Email, "phone": t.Phone, "department": t.Department,
@@ -221,9 +221,9 @@ func notifyAttendanceTaken(r *http.Request, pool *pgxpool.Pool, tenantID, tenant
 	subject, body := attendanceTakenMessage(t.Office, t.VisitDate, t.VisitTime, status)
 	tName, tDomain := tenantBranding(r, pool, tenantID)
 	payload, _ := json.Marshal(map[string]interface{}{
-		"tenant":  tenantName,
-		"subject": subject,
-		"message": body,
+		"tenant":   tenantName,
+		"subject":  subject,
+		"message":  body,
 		"branding": map[string]string{"name": tName, "domain": tDomain},
 		"recipients": []map[string]string{{
 			"name": t.Name, "email": t.Email, "phone": t.Phone, "department": t.Department,

@@ -37,9 +37,9 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     if (r.role == 'COORDINATOR') return CoordinatorHub(result: r);
-    // The QA patroller is the unified app's second role: the handset-claim, PIN-gated
+    // The QA monitor is the unified app's second role: the handset-claim, PIN-gated
     // monitor round. No path exists from it into the coordinator hub (and vice versa).
-    if (r.role == 'QA_PATROLLER') return PatrolRoleApp(result: r);
+    if (r.role == 'QA_MONITOR') return PatrolRoleApp(result: r);
     if (r.role == 'LECTURER') return LecturerDashboard(result: r);
     if (r.role == 'STUDENT') return StudentDashboard(result: r);
     return _OtherRolePlaceholder(result: r);

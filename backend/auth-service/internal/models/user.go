@@ -6,6 +6,10 @@ type Role string
 
 const (
 	RoleCoordinator Role = "COORDINATOR"
+	// RoleQAMonitor — the QA field monitor. Migration 110 merged the QA officer, patroller
+	// and school-handler roles into this one; accounts carry only QA_MONITOR now, and the
+	// legacy RoleQAOfficer constant below is kept for token-compat reading only.
+	RoleQAMonitor   Role = "QA_MONITOR"
 	RoleQAOfficer   Role = "QA_OFFICER"
 	RoleDQADirector Role = "DQA_DIRECTOR"
 	RoleVC          Role = "VC"

@@ -119,7 +119,7 @@ func postAbsentees(r *http.Request, list []noShow, tenantName, tenantDomain stri
 	return nil
 }
 
-// NotifyNoShows — QA officer triggers the email+WhatsApp fan-out for today's no-shows.
+// NotifyNoShows — QA monitor triggers the email+WhatsApp fan-out for today's no-shows.
 func NotifyNoShows(adminPool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID := middleware.GetTenantID(r.Context())

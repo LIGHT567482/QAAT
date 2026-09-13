@@ -109,7 +109,7 @@ func lecturerMayOpenList(ctx context.Context, conn *pgxpool.Conn, tenantID, list
 // here without a matching route change gets a 403 from RequireRole, not a surprise opening.
 func isPrivilegedOpener(role string) bool {
 	switch role {
-	case middleware.RoleCoordinator, middleware.RoleQAOfficer,
+	case middleware.RoleCoordinator, middleware.RoleQAMonitor,
 		middleware.RoleDQADirector, middleware.RoleAdmin:
 		return true
 	}

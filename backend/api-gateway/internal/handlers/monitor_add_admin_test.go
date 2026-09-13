@@ -8,44 +8,43 @@ import (
 
 // The QA monitor's in-app reach.
 //
-// A patroller is now a SENDING role on /api/v1/app-notifications (added alongside QA officer /
-// DQA director). Two separate lists have to come along on a phone build: the resolver's `case`
-// branch that turns "LECTURER" / "COORDINATOR" into a SQL query, and the `valid` map that decides
-// whether that audience is even a legal target for the role. The two live half a file apart, and
-// a client can send an audience that passes the map and then silently reaches NOBODY if the
-// resolver has no branch for it — the exact failure mode these source checks exist to catch.
+// The QA monitor is a SENDING role on /api/v1/app-notifications (added alongside the DQA
+// director). Two separate lists have to come along on a phone build: the resolver's `case`
+// branch that turns "LECTURER" / "COORDINATOR" into a SQL query, and the `valid` map that
+// decides whether that audience is even a legal target for the role. The two live half a file
+// apart, and a client can send an audience that passes the map and then silently reaches NOBODY
+// if the resolver has no branch for it — the exact failure mode these source checks exist to catch.
 
-func TestPatrollerSender_isWiredInResolverAndValidMap(t *testing.T) {
+func TestMonitorSender_isWiredInResolverAndValidMap(t *testing.T) {
 	src, err := os.ReadFile("app_notifications.go")
 	if err != nil {
 		t.Fatalf("could not read the resolver source: %v", err)
 	}
 	resolver := string(src)
 
-	// The `valid` map entry — who a patroller may address.
-	validLine := `middleware.RolePatroller: {"LECTURERS": true, "LECTURER": true, "COORDINATORS": true, "COORDINATOR": true}`
+	// The `valid` map entry — who a QA monitor may address.
+	validLine := `middleware.RoleQAMonitor:   {"MONITORS": true, "MONITOR": true, "PATROLLERS": true, "PATROLLER": true, "LECTURERS": true, "LECTURER": true, "COORDINATORS": true, "COORDINATOR": true}`
 	if !strings.Contains(resolver, validLine) {
-		t.Errorf("valid map has no patroller audience entry — a monitor composer would be refused outright")
+		t.Errorf("valid map has no monitor audience entry — a monitor composer would be refused outright")
 	}
 
-	// The resolver case that executes for a patroller sender.
-	if !strings.Contains(resolver, `case middleware.RoleQAOfficer, middleware.RoleDQADirector, middleware.RolePatroller:`) {
-		t.Errorf("resolveRecipients has no branch for a QA_PATROLLER sender")
+	// The resolver case that executes for a monitor sender.
+	if !strings.Contains(resolver, `case middleware.RoleQAMonitor, middleware.RoleDQADirector:`) {
+		t.Errorf("resolveRecipients has no branch for a QA_MONITOR sender")
 	}
 	// And the singular COORDINATOR branch that makes one-person targeting possible.
 	if !strings.Contains(resolver, `case "COORDINATORS", "COORDINATOR":`) {
-		t.Errorf("resolveRecipients has no COORDINATOR audience branch for the patroller")
+		t.Errorf("resolveRecipients has no COORDINATOR audience branch for the monitor")
 	}
 
-	// Route gate: the router must admit the patroller to the send endpoint.
+	// Route gate: the router must admit the monitor to the send endpoint.
 	rsc, err := os.ReadFile("../router/router.go")
 	if err != nil {
 		t.Fatalf("could not read the router source: %v", err)
 	}
-	if !strings.Contains(string(rsc), "middleware.RolePatroller)).\n\t\t\tPost(\"/api/v1/app-notifications\"") &&
-		!strings.Contains(string(rsc), `middleware.RolePatroller)).
-			Post("/api/v1/app-notifications"`) {
-		t.Errorf("router does not gate POST /api/v1/app-notifications for the patroller role")
+	if !strings.Contains(string(rsc), "middleware.RoleQAMonitor,") ||
+		!strings.Contains(string(rsc), `handlers.SendAppNotification(adminPool)`) {
+		t.Errorf("router does not gate POST /api/v1/app-notifications for the QA_MONITOR role")
 	}
 }
 

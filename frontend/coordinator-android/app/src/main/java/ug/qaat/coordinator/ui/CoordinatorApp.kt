@@ -168,7 +168,7 @@ fun RootApp() = MaterialTheme(colorScheme = brandedColorScheme(AppState.branding
             // AppState.role == "STUDENT" -> StudentRoleApp()
 
             AppState.role == "LECTURER" -> LecturerApp()
-            AppState.role == "QA_PATROLLER" -> PatrolRoleApp()
+            AppState.role == "QA_MONITOR" -> PatrolRoleApp()
             AppState.role == "COORDINATOR" -> CoordinatorApp()   // the in-room hub
             else -> NoPhoneUiScreen(AppState.role)               // web-dashboard roles: no phone UI
         }
@@ -442,7 +442,7 @@ private fun CoordinatorComposer(onSent: () -> Unit) {
 private fun defaultPasswordForRole(role: String?): String = when (role) {
     "STUDENT" -> "student"
     "LECTURER" -> "lecturer"
-    "QA_PATROLLER" -> "monitor"
+    "QA_MONITOR" -> "monitor"
     else -> ""
 }
 

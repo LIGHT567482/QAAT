@@ -16,7 +16,7 @@ package handlers
 // they are never merged because the disagreement is the finding. This is the same arrangement for
 // offices — see migration 106.
 //
-// Role: QA_PATROLLER, and everything here goes through checkPatrolDevice and sits behind the same
+// Role: QA_MONITOR, and everything here goes through checkPatrolDevice and sits behind the same
 // PIN gate on the handset as the lecture round. The handset is recorded, not enforced (see
 // patrol.go): the PIN is what stands behind an observation about a named person.
 

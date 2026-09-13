@@ -2,18 +2,23 @@
 #
 # Quality Assurance writing to its own field staff, end to end against a running stack.
 #
-# The QA officer and the DQA director run the patrol round and could not send a patroller a single
-# line. Every other role with people under it had a channel; the two roles responsible for the
-# round had none, so reassigning a round or calling a handset in was a phone call, off the record.
+# QA field staff — the monitor — and the DQA director run the patrol round and could not send a
+# single line. Every other role with people under it had a channel; the two roles responsible for
+# the round had none, so reassigning a round or calling a handset in was a phone call, off the
+# record.
 #
-# It goes through /api/v1/app-notifications — the inbox the patroller's phone app already polls and
+# It goes through /api/v1/app-notifications — the inbox the monitor's phone app already polls and
 # badges — so a briefing lands where they are actually looking.
 #
 # The assertions are the ones that matter if this is to be trusted: a broadcast reaches every
-# ACTIVE patroller and no inactive one; a message to one person reaches exactly that person and
-# nobody else; the sender is named; and a patroller cannot send in the other direction.
+# ACTIVE monitor and no inactive one; a message to one person reaches exactly that person and
+# nobody else; the sender is named; and a monitor cannot send in the other direction.
 #
-# Usage:  ./qa_patroller_messaging_test.sh        (against https://localhost:8443)
+# MONITORS is the spelling the dashboards send now that the roles have merged into QA_MONITOR; the
+# legacy PATROLLERS spelling is still accepted for clients that have not reloaded, and that path
+# is checked too.
+#
+# Usage:  ./qa_monitor_messaging_test.sh        (against https://localhost:8443)
 # Seeds and removes its own QPTEST fixtures via the postgres container.
 set -uo pipefail
 BASE="${1:-https://localhost:8443}"; PG="${PG_CONTAINER:-infra-postgres-1}"; pass=0; fail=0
@@ -36,11 +41,11 @@ BEGIN
   SELECT tenant_id, domain INTO v_tenant, v_dom FROM tenants
    WHERE tenant_id <> '00000000-0000-0000-0000-000000000000' ORDER BY created_at LIMIT 1;
   INSERT INTO users (tenant_id, email, password_hash, role, full_name, is_active, staff_id, force_password_change) VALUES
-   (v_tenant,'qptest.qa@'||v_dom,  crypt('QaPass12345',  gen_salt('bf',10)),'QA_OFFICER',  'QPTest QA Officer', true,'QPTEST-QA',  false),
+   (v_tenant,'qptest.qa@'||v_dom,  crypt('QaPass12345',  gen_salt('bf',10)),'QA_MONITOR',   'QPTest QA Monitor', true,'QPTEST-QA',  false),
    (v_tenant,'qptest.dqa@'||v_dom, crypt('DqaPass12345', gen_salt('bf',10)),'DQA_DIRECTOR','QPTest DQA',        true,'QPTEST-DQA', false),
-   (v_tenant,'qptest.p1@'||v_dom,  crypt('PatPass12345', gen_salt('bf',10)),'QA_PATROLLER','QPTest Patroller 1',true,'QPTEST-P1',  false),
-   (v_tenant,'qptest.p2@'||v_dom,  crypt('PatPass12345', gen_salt('bf',10)),'QA_PATROLLER','QPTest Patroller 2',true,'QPTEST-P2',  false),
-   (v_tenant,'qptest.p3@'||v_dom,  crypt('PatPass12345', gen_salt('bf',10)),'QA_PATROLLER','QPTest Retired',    false,'QPTEST-P3', false);
+   (v_tenant,'qptest.p1@'||v_dom,  crypt('PatPass12345', gen_salt('bf',10)),'QA_MONITOR',   'QPTest Monitor 1',  true,'QPTEST-P1',  false),
+   (v_tenant,'qptest.p2@'||v_dom,  crypt('PatPass12345', gen_salt('bf',10)),'QA_MONITOR',   'QPTest Monitor 2',  true,'QPTEST-P2',  false),
+   (v_tenant,'qptest.p3@'||v_dom,  crypt('PatPass12345', gen_salt('bf',10)),'QA_MONITOR',   'QPTest Retired',    false,'QPTEST-P3', false);
 END $$;
 SQL
 
@@ -55,42 +60,45 @@ send(){ curl -sk -X POST "$BASE/api/v1/app-notifications" -H "Authorization: Bea
   -d "{\"audience\":\"$2\",\"target_id\":\"$3\",\"subject\":\"$4\",\"body\":\"$5\"}"; }
 inbox(){ curl -sk "$BASE/api/v1/app-notifications" -H "Authorization: Bearer $1" -m 30; }
 
-echo; echo "── 1. QA officer briefs every patroller ──"
-# Counted from the database, not hardcoded: this institution already has patrollers of its own,
+echo; echo "── 1. QA monitor briefs every monitor ──"
+# Counted from the database, not hardcoded: this institution already has monitors of its own,
 # and a fixed number would have failed for a reason that had nothing to do with the code.
 # Scoped to the SENDER'S tenant, like the broadcast is: any other institution in the same
-# database has patrollers of its own, and counting those made this fail for a reason that had
+# database has monitors of its own, and counting those made this fail for a reason that had
 # nothing to do with the code.
 ACTIVE=$(docker exec -i "$PG" psql -U qaat -d qaat -tAc \
-  "SELECT COUNT(*) FROM users u WHERE u.role='QA_PATROLLER' AND COALESCE(u.is_active,true)
+  "SELECT COUNT(*) FROM users u WHERE u.role='QA_MONITOR' AND COALESCE(u.is_active,true)
      AND u.tenant_id = (SELECT tenant_id FROM users WHERE staff_id='QPTEST-QA');")
-R=$(send "$QA" PATROLLERS "" "QPTEST round change" "Start at the Science block today.")
-echo "   $R  (active patrollers: $ACTIVE)"
-check "reached every ACTIVE patroller and no inactive one" "$(python3 -c "import json,sys;print(json.load(sys.stdin)['recipients'])" <<<"$R")" "$ACTIVE"
-has "patroller 1 has it" "QPTEST round change" "$(inbox "$P1")"
-has "patroller 2 has it" "QPTEST round change" "$(inbox "$P2")"
+R=$(send "$QA" MONITORS "" "QPTEST round change" "Start at the Science block today.")
+echo "   $R  (active monitors: $ACTIVE)"
+check "reached every ACTIVE monitor and no inactive one" "$(python3 -c "import json,sys;print(json.load(sys.stdin)['recipients'])" <<<"$R")" "$ACTIVE"
+has "monitor 1 has it" "QPTEST round change" "$(inbox "$P1")"
+has "monitor 2 has it" "QPTEST round change" "$(inbox "$P2")"
+# A stale client still spells it PATROLLERS; both must resolve to the same inbox.
+R=$(send "$QA" PATROLLERS "" "QPTEST stale spelling" "Legacy audience still lands.")
+check "the legacy PATROLLERS spelling still works" "$(python3 -c "import json,sys;print(json.load(sys.stdin)['recipients'])" <<<"$R")" "$ACTIVE"
 
-echo; echo "── 2. DQA messages ONE patroller ──"
-R=$(send "$DQA" PATROLLER QPTEST-P2 "QPTEST bring the handset in" "Swap it at the QA office.")
+echo; echo "── 2. DQA messages ONE monitor ──"
+R=$(send "$DQA" MONITOR QPTEST-P2 "QPTEST bring the handset in" "Swap it at the QA office.")
 check "one recipient" "$(python3 -c "import json,sys;print(json.load(sys.stdin)['recipients'])" <<<"$R")" "1"
-has "the addressed patroller has it" "QPTEST bring the handset in" "$(inbox "$P2")"
+has "the addressed monitor has it" "QPTEST bring the handset in" "$(inbox "$P2")"
 if grep -qF "QPTEST bring the handset in" <<<"$(inbox "$P1")"; then
-  echo "   ✗ it also reached the OTHER patroller"; fail=$((fail+1))
-else echo "   ✓ it did not reach the other patroller"; pass=$((pass+1)); fi
+  echo "   ✗ it also reached the OTHER monitor"; fail=$((fail+1))
+else echo "   ✓ it did not reach the other monitor"; pass=$((pass+1)); fi
 
-echo; echo "── 3. the sender is named, so a patroller knows who is asking ──"
+echo; echo "── 3. the sender is named, so a monitor knows who is asking ──"
 has "sender name" "QPTest DQA" "$(inbox "$P2")"
 
-echo; echo "── 4. a patroller cannot send ──"
+echo; echo "── 4. a monitor cannot send ──"
 CODE=$(curl -sk -o /dev/null -w '%{http_code}' -X POST "$BASE/api/v1/app-notifications" -H "Authorization: Bearer $P1" \
-  -H 'Content-Type: application/json' -m 20 -d '{"audience":"PATROLLERS","subject":"nope"}')
-check "patroller is refused the send route" "$CODE" "403"
+  -H 'Content-Type: application/json' -m 20 -d '{"audience":"MONITORS","subject":"nope"}')
+check "monitor is refused the send route" "$CODE" "403"
 
-echo; echo "── 5. the picker lists active patrollers only ──"
+echo; echo "── 5. the picker lists active monitors only ──"
 L=$(curl -sk "$BASE/api/v1/dashboard/qa/patrollers" -H "Authorization: Bearer $QA" -m 30)
-has "lists patroller 1" "QPTEST-P1" "$L"
-if grep -qF "QPTEST-P3" <<<"$L"; then echo "   ✗ lists the INACTIVE patroller"; fail=$((fail+1));
-else echo "   ✓ omits the inactive patroller"; pass=$((pass+1)); fi
+has "lists monitor 1" "QPTEST-P1" "$L"
+if grep -qF "QPTEST-P3" <<<"$L"; then echo "   ✗ lists the INACTIVE monitor"; fail=$((fail+1));
+else echo "   ✓ omits the inactive monitor"; pass=$((pass+1)); fi
 
 echo; echo "── 6. the org roles that were silently 403'd can now send ──"
 CODE=$(curl -sk -o /dev/null -w '%{http_code}' -X POST "$BASE/api/v1/app-notifications" -H "Authorization: Bearer $QA" \

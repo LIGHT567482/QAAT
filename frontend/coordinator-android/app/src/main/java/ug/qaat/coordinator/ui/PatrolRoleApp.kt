@@ -43,7 +43,7 @@ import java.util.UUID
  *
  * Folding it in removes the second app but not the separation, which is enforced in three places:
  *
- *  1. **Role routing** — [RootApp] sends `QA_PATROLLER` here and nowhere else. There is no path
+ *  1. **Role routing** — [RootApp] sends `QA_MONITOR` here and nowhere else. There is no path
  *     from this screen into the coordinator hub, the lecturer roster, or a student's record.
  *  2. **Handset binding** — the round is gated on [DeviceGate]. The gateway ties the monitor's
  *     account to the first phone that claims it and refuses monitor calls from any other, so a

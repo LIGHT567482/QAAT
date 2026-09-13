@@ -1,13 +1,13 @@
 package handlers
 
-// QA patroller endpoints (Phase 3).
+// QA monitor patrol endpoints (Phase 3).
 //
-//   POST /api/v1/patrol/bind-device — claim this handset for the signed-in patroller.
+//   POST /api/v1/patrol/bind-device — claim this handset for the signed-in monitor.
 //   GET  /api/v1/patrol/manifest    — today's timetable (unit↔lecturer↔room↔time) so the offline
 //                                     patrol screen can infer the rest from a chosen unit/room.
 //   POST /api/v1/patrol/sync        — ingest a batch of patrol logs (was the lecturer teaching).
 //
-// Role: QA_PATROLLER. Everything is tenant-scoped via RLS.
+// Role: QA_MONITOR. Everything is tenant-scoped via RLS.
 //
 // THE ONE-HANDSET LOCK IS OFF. Every route here used to require that the call come from the phone
 // the patroller had claimed (migration 069). That is commented out in checkPatrolDevice and
@@ -595,7 +595,7 @@ func PatrolSync(pool *pgxpool.Pool) http.HandlerFunc {
 						// where an audit trail belongs.
 						if conn.QueryRow(r.Context(), `
 							INSERT INTO app_notifications (tenant_id, sender_id, sender_name, sender_role, audience, unit_id, subject, body)
-							VALUES ($1, NULL, $2, 'QA_PATROLLER', 'DIRECT', $3, $4, $5) RETURNING notification_id::text`,
+							VALUES ($1, NULL, $2, 'QA_MONITOR', 'DIRECT', $3, $4, $5) RETURNING notification_id::text`,
 							tenantID, patrolSenderName, l.UnitID, subj, bodyTxt).Scan(&vid) == nil {
 							for _, uid := range recips {
 								_, _ = conn.Exec(r.Context(),
@@ -642,7 +642,7 @@ func ListPatrollers(pool *pgxpool.Pool) http.HandlerFunc {
 		rows, err := conn.Query(r.Context(), `
 			SELECT user_id::text, COALESCE(staff_id,''), COALESCE(full_name,''), COALESCE(email,'')
 			FROM users
-			WHERE tenant_id = $1 AND role = 'QA_PATROLLER' AND COALESCE(is_active, true)
+			WHERE tenant_id = $1 AND role = 'QA_MONITOR' AND COALESCE(is_active, true)
 			ORDER BY full_name`, tenantID)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, errBody("INTERNAL_ERROR", err.Error()))

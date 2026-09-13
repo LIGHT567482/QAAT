@@ -69,7 +69,7 @@ BEGIN
   VALUES
     (v_tenant, 'pwtest.stu1@' || v_dom, crypt('Student',   gen_salt('bf', 10)), 'STUDENT',      'PWTest Student',   true, NULL,           true),
     (v_tenant, 'pwtest.lec1@' || v_dom, crypt('lecturer',  gen_salt('bf', 10)), 'LECTURER',     'PWTest Lecturer',  true, 'PWTEST-LEC-1', true),
-    (v_tenant, 'pwtest.pat1@' || v_dom, crypt('patroller', gen_salt('bf', 10)), 'QA_PATROLLER', 'PWTest Patroller', true, 'PWTEST-PAT-1', true)
+    (v_tenant, 'pwtest.pat1@' || v_dom, crypt('monitor', gen_salt('bf', 10)), 'QA_MONITOR', 'PWTest Monitor', true, 'PWTEST-MON-1', true)
   ON CONFLICT (tenant_id, email) DO NOTHING;
 END $$;
 SQL
@@ -109,7 +109,7 @@ echo "=== First-login journey against $BASE ==="
 seed
 run "STUDENT   — account seeded 'Student', types 'student'" "PWTEST-STU-1" "student"   "NewStudentPass1"
 run "LECTURER  — seeded 'lecturer'"                         "PWTEST-LEC-1" "lecturer"  "NewLecturerPass1"
-run "PATROLLER — seeded 'patroller'"                        "PWTEST-PAT-1" "patroller" "NewPatrolPass1"
+run "QA MONITOR — seeded 'monitor'"                      "PWTEST-MON-1" "monitor"  "NewMonitorPass1"
 echo
 echo "=== $pass passed, $fail failed ==="
 [ "$fail" -eq 0 ]

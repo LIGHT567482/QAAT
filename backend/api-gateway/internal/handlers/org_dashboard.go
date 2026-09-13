@@ -5,12 +5,13 @@ package handlers
 //	GET /api/v1/org/overview   — the KPI header for whatever unit the caller is bounded to
 //	GET /api/v1/org/at-risk    — students below the attendance threshold, worst first
 //
-// SCOPE IS NOT A PARAMETER. Every one of these roles is bounded by exactly one org unit, carried on
-// their own account: HOD and QA_DEPT_REP by `users.department`, DEAN and QA_SCHOOL_HANDLER by
-// `users.school`. The caller cannot name a different one — there is no query parameter for it — so
-// a dean cannot read another college by asking nicely. The institution-wide roles (DQA, QA officer,
-// VC/DVC, ADMIN) get the unscoped view of the same data, which is what makes /org/at-risk one page
-// rather than four.
+// SCOPE IS NOT A PARAMETER. Every one of these roles is bounded by org units carried on their own
+// account: HOD and QA_DEPT_REP by `users.department`, DEAN by `users.school`, and QA_MONITOR by the
+// schools an admin assigned them (qa_monitor_schools, migration 110). The caller cannot name a
+// different unit — there is no query parameter for it — so a dean cannot read another college by
+// asking nicely. A QA monitor with no schools assigned reads the institution-wide view until an
+// admin assigns some. The institution-wide roles (DQA, VC/DVC, ADMIN) get the unscoped view of the
+// same data, which is what makes /org/at-risk one page rather than four.
 //
 // An account with a BLANK org unit matches nothing rather than everything. That is the whole reason
 // the admin form refuses to create one without it: an empty scope that matched every department
@@ -91,26 +92,38 @@ func resolveOrgScope(r *http.Request, pool *pgxpool.Pool, tenantID, userID, role
 		}
 		s.Unbounded = true
 		return s, true
-	case middleware.RoleDean, middleware.RoleQASchool:
+	case middleware.RoleDean, middleware.RoleQAMonitor, middleware.RoleQASchool:
 		s.Col, s.Val = "c.school", s.School
 		// A dean whose account says "SOMAC" must still match courses filed under the full title,
 		// and vice versa.
 		s.Aliases = schoolAliases(r.Context(), pool, tenantID, s.School)
-		// A QA school handler is routinely given more than one school, and the single
-		// users.school column had nowhere to put the second — so everything outside
-		// their first school was simply invisible to them, with no error to explain it.
-		// user_schools (migration 075) carries the rest; every name is widened through
-		// the same alias lookup so abbreviations still match.
-		for _, extra := range userSchools(r.Context(), pool, tenantID, userID) {
-			s.Aliases = append(s.Aliases, schoolAliases(r.Context(), pool, tenantID, extra)...)
+		// A QA monitor is routinely given more than one school, and the single users.school
+		// column had nowhere to put the second — so everything outside their first school was
+		// simply invisible to them, with no error to explain it. qa_monitor_schools (migration
+		// 110) carries the rest (a DEAN genuinely has none; a legacy pre-110 QA_SCHOOL_HANDLER
+		// token still reads user_schools, which 110 seeded the join table from). Every name is
+		// widened through the same alias lookup so abbreviations still match.
+		var extra []string
+		if role == middleware.RoleQASchool {
+			extra = userSchools(r.Context(), pool, tenantID, userID)
+		} else {
+			extra = monitorSchools(r.Context(), pool, tenantID, userID)
+		}
+		for _, e := range extra {
+			s.Aliases = append(s.Aliases, schoolAliases(r.Context(), pool, tenantID, e)...)
 			if strings.TrimSpace(s.Val) == "" {
-				s.Val = extra // a handler with no legacy users.school is still scoped
+				s.Val = e // a monitor with no legacy users.school is still scoped
 			}
 		}
-	default:
-		// DQA / QA officer / VC / DVC / ADMIN see the institution.
-		s.Unbounded = true
-		return s, true
+		// UNASSIGNED MONITOR = THE WHOLE INSTITUTION (migration 110). A monitor with no schools
+		// covers everything, exactly like the DQA — an empty page would read as "no data" to
+		// somebody whose job is everyone. The scope bites back to the assigned colleges the
+		// moment an admin assigns some; the legacy role label keeps the old "nothing set → show
+		// nothing" behaviour for its temporary token life.
+		if role == middleware.RoleQAMonitor && strings.TrimSpace(s.Val) == "" {
+			s.Unbounded = true
+			return s, true
+		}
 	}
 	return s, strings.TrimSpace(s.Val) != ""
 }
@@ -276,7 +289,7 @@ func orgScopeLabel(s scope, role string) string {
 	switch role {
 	case middleware.RoleHOD, middleware.RoleQADeptRep:
 		return s.Department
-	case middleware.RoleDean, middleware.RoleQASchool:
+	case middleware.RoleDean, middleware.RoleQAMonitor, middleware.RoleQASchool:
 		return s.School
 	}
 	return "Institution-wide"

@@ -106,8 +106,9 @@ func AppLogin(adminPool *pgxpool.Pool) http.HandlerFunc {
 					tenantID, userID).Scan(&staffID)
 			}
 			obj["staff_id"] = staffID
-		case "QA_PATROLLER":
-			// The patroller's staff id lives on their user account (users.staff_id).
+		case "QA_PATROLLER", "QA_MONITOR":
+			// The monitor's staff id lives on their user account (users.staff_id). The legacy
+			// label is accepted so a token minted before migration 110 still resolves.
 			if staffID == "" && userID != "" {
 				adminPool.QueryRow(ctx, //nolint:errcheck
 					`SELECT COALESCE(staff_id,'') FROM users WHERE tenant_id = $1 AND user_id = $2 LIMIT 1`,

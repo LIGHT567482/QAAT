@@ -21,7 +21,7 @@ import 'sync_pending.dart';
 ///
 /// The separation between this role and every other is enforced in three places:
 ///
-///  1. **Role routing** — [HomeScreen] sends `QA_PATROLLER` here and nowhere else.
+///  1. **Role routing** — [HomeScreen] sends `QA_MONITOR` here and nowhere else.
 ///     There is no path from this screen into the coordinator hub, the lecturer
 ///     roster, or a student's record.
 ///  2. **Handset binding** — the round is gated on the device gate below. The

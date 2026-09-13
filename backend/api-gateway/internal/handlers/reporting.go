@@ -250,7 +250,7 @@ func VCLecturerWorkload(pool *pgxpool.Pool) http.HandlerFunc {
 	}
 }
 
-// GET /api/v1/dashboard/qa/coordinator-health — Role: QA_OFFICER
+// GET /api/v1/dashboard/qa/coordinator-health — Role: QA_MONITOR
 func QACoordinatorHealth(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID := middleware.GetTenantID(r.Context())
@@ -318,8 +318,8 @@ func QACoordinatorHealth(pool *pgxpool.Pool) http.HandlerFunc {
 	}
 }
 
-// POST /api/v1/dashboard/qa/attendance-correction — Role: QA_OFFICER
-// Inserts a MANUAL_OVERRIDE attendance entry with officer audit trail.
+// POST /api/v1/dashboard/qa/attendance-correction — Role: QA_MONITOR
+// Inserts a MANUAL_OVERRIDE attendance entry with monitor audit trail.
 func QAManualCorrection(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID := middleware.GetTenantID(r.Context())
@@ -464,7 +464,7 @@ func SessionRoster(pool *pgxpool.Pool) http.HandlerFunc {
 	}
 }
 
-// GET /api/v1/eligibility/:student_id — Roles: QA_OFFICER, DQA_DIRECTOR, VC, STUDENT
+// GET /api/v1/eligibility/:student_id — Roles: QA_MONITOR, DQA_DIRECTOR, VC, STUDENT
 // Accepts either the student registration number (e.g. NUT/CS/2024/001) OR the
 // user UUID (returned by login). The UUID path is used by the student portal.
 func GetEligibility(pool *pgxpool.Pool) http.HandlerFunc {
@@ -710,7 +710,7 @@ func StudentProgressByReg(adminPool *pgxpool.Pool) http.HandlerFunc {
 	}
 }
 
-// POST /api/v1/dashboard/qa/device-reset — Role: QA_OFFICER
+// POST /api/v1/dashboard/qa/device-reset — Role: QA_MONITOR
 func QADeviceReset(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID := middleware.GetTenantID(r.Context())

@@ -28,9 +28,9 @@ ON CONFLICT (tenant_id) DO NOTHING;
 INSERT INTO users (tenant_id, email, password_hash, role, full_name)
 VALUES
   ('a0000000-0000-0000-0000-000000000001', 'a.admin@a.test', 'x', 'ADMIN',   'A Admin'),
-  ('a0000000-0000-0000-0000-000000000001', 'a.qa@a.test',    'x', 'QA_OFFICER', 'A QA'),
+  ('a0000000-0000-0000-0000-000000000001', 'a.qa@a.test',    'x', 'QA_MONITOR', 'A QA'),
   ('b0000000-0000-0000-0000-000000000002', 'b.admin@b.test', 'x', 'ADMIN',   'B Admin'),
-  ('b0000000-0000-0000-0000-000000000002', 'b.qa@b.test',    'x', 'QA_OFFICER', 'B QA')
+  ('b0000000-0000-0000-0000-000000000002', 'b.qa@b.test',    'x', 'QA_MONITOR', 'B QA')
 ON CONFLICT (tenant_id, email) DO NOTHING;
 
 INSERT INTO courses (course_id, tenant_id, name)

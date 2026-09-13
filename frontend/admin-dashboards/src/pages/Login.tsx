@@ -12,11 +12,10 @@ const API = import.meta.env.VITE_API_URL ?? (typeof location !== 'undefined' ? `
 const ROLE_REDIRECT: Partial<Record<Role, string>> = {
   VC:           '/vc',
   DQA_DIRECTOR: '/dqa',
-  QA_OFFICER:   '/qa/reports',
+  QA_MONITOR:   '/qa-school',
   ADMIN:        '/admin',
   HOD:          '/hod',
   DEAN:         '/dean',
-  QA_SCHOOL_HANDLER: '/qa-school',
   QA_DEPT_REP:       '/qa-dept',
   TLC:               '/tlc',
 }
@@ -27,9 +26,6 @@ const ROLE_REDIRECT: Partial<Record<Role, string>> = {
 const NO_WEB_DASHBOARD: Partial<Record<Role, string>> = {
   LECTURER: 'Lecturers work from the KIU QAAT mobile app — there is no web console for this account. Sign in there with the same details to start a lecture, run a distance class, see your timetable and answer anything recorded against you. To look your attendance up from a browser, use the lecturer portal link below.',
   COORDINATOR: 'Coordinators run sessions from the KIU QAAT mobile app — there is no web dashboard for this account. Sign in there with the same details, or with your coordinator code.',
-  // A monitor's work is walking into rooms, so their round lives on the phone. Saying so beats
-  // the generic "no dashboard" line, which reads like the account is broken.
-  QA_PATROLLER: 'QA monitors run their round from the KIU QAAT mobile app — there is no web dashboard for this account. Sign in there with your staff ID and the same password.',
   STUDENT: 'Students use the KIU QAAT mobile app or the student portal — there is no web dashboard for this account.',
 }
 

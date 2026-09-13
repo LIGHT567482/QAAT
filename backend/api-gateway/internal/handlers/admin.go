@@ -324,10 +324,12 @@ func ListTenantUsers(pool *pgxpool.Pool) http.HandlerFunc {
 // MANAGED_ROLES are the roles the admin Users page LISTS. Coordinators, lecturers and students
 // have their own directories and are deliberately absent from it — which is why an email held by
 // one of them reads as "already exists, but it isn't there" unless the message says so.
+//
+// QA is one role here (QA_MONITOR, migration 110); the three legacy QA field labels went into it
+// and are no longer creatable or listable.
 var MANAGED_ROLES = map[string]bool{
-	"ADMIN": true, "VC": true, "DVC": true, "QA_OFFICER": true, "DQA_DIRECTOR": true,
-	"DEAN": true, "HOD": true, "QA_SCHOOL_HANDLER": true, "QA_DEPT_REP": true,
-	"QA_PATROLLER": true, "TLC": true,
+	"ADMIN": true, "VC": true, "DVC": true, "QA_MONITOR": true, "DQA_DIRECTOR": true,
+	"DEAN": true, "HOD": true, "QA_DEPT_REP": true, "TLC": true,
 }
 
 // POST /api/v1/admin/tenants/{tenant_id}/users
@@ -358,9 +360,9 @@ func CreateUser(pool *pgxpool.Pool) http.HandlerFunc {
 		req.Department = strings.TrimSpace(req.Department)
 		req.School = strings.TrimSpace(req.School)
 		// A role that has a seeded first-login password does not need one typed here. The
-		// administrator creating a QA patroller previously had to invent a password and then get
+		// administrator creating a QA monitor previously had to invent a password and then get
 		// it to them somehow; now they can leave it blank and tell them the one word everybody
-		// already knows, which the patroller must replace before the round will open anyway.
+		// already knows, which the monitor must replace before the round will open anyway.
 		seeded := DefaultPasswordFor(req.Role)
 		if req.Password == "" && seeded != "" {
 			req.Password = seeded
@@ -370,13 +372,15 @@ func CreateUser(pool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 		validRoles := map[string]bool{
-			"COORDINATOR": true, "QA_OFFICER": true,
+			"COORDINATOR": true,
+			// The single QA field role (migration 110). The legacy QA_OFFICER, QA_PATROLLER and
+			// QA_SCHOOL_HANDLER labels are not creatable any more — new accounts are QA_MONITOR.
+			"QA_MONITOR":   true,
 			"DQA_DIRECTOR": true, "VC": true, "DVC": true, "ADMIN": true,
 			"LECTURER": true,
 			// Org-scoped oversight. Each one's dashboard is bounded by the department or school
 			// set on the account below, so the org unit is not optional for them.
-			"HOD": true, "DEAN": true, "QA_SCHOOL_HANDLER": true, "QA_DEPT_REP": true,
-			"QA_PATROLLER": true,
+			"HOD": true, "DEAN": true, "QA_DEPT_REP": true,
 			// Teaching & Learning Centre — owns the timetable, institution-wide, so it
 			// needs no department or school.
 			"TLC": true,
@@ -389,14 +393,18 @@ func CreateUser(pool *pgxpool.Pool) http.HandlerFunc {
 		// The department/school on the account IS the scope of these roles' dashboards — an HOD
 		// with no department sees an empty page and a QA dept rep cannot file a report at all, so
 		// the requirement is enforced here rather than discovered later.
+		//
+		// A QA MONITOR is deliberately NOT in either branch: its scope is the schools an admin
+		// assigns on the same page (qa_monitor_schools), which may be none — an unassigned
+		// monitor still does institution-wide patrol work rather than getting an empty page.
 		switch req.Role {
-		case "QA_OFFICER", "HOD", "QA_DEPT_REP":
+		case "HOD", "QA_DEPT_REP":
 			if req.Department == "" {
 				writeJSON(w, http.StatusBadRequest, errBody("INVALID_REQUEST",
 					"a department is required for "+humanRole(req.Role)+" — it is the scope of everything they see"))
 				return
 			}
-		case "DEAN", "QA_SCHOOL_HANDLER":
+		case "DEAN":
 			if req.School == "" {
 				writeJSON(w, http.StatusBadRequest, errBody("INVALID_REQUEST",
 					"a college/school is required for "+humanRole(req.Role)+" — it is the scope of everything they see"))
@@ -506,6 +514,21 @@ func CreateUser(pool *pgxpool.Pool) http.HandlerFunc {
 			}
 			writeJSON(w, http.StatusInternalServerError, errBody("INTERNAL_ERROR", err2.Error()))
 			return
+		}
+
+		// A monitor created with a school on the form is also filed against it, so the
+		// scope opens in the join table from the first login instead of waiting for a
+		// second screen. Other roles never write here.
+		if req.Role == "QA_MONITOR" && req.School != "" {
+			_, _ = pool.Exec(r.Context(), `
+				INSERT INTO qa_monitor_schools (user_id, tenant_id, school_id)
+				SELECT $1::uuid, $2, s.school_id
+				  FROM schools s
+				 WHERE s.tenant_id = $2
+				   AND (btrim(lower(s.name)) = btrim(lower($3))
+				        OR btrim(lower(COALESCE(s.abbreviation,''))) = btrim(lower($3)))
+				ON CONFLICT (tenant_id, user_id, school_id) DO NOTHING`,
+				userID, tenantID, req.School)
 		}
 
 		resp := map[string]string{

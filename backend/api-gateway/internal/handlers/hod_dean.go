@@ -116,16 +116,73 @@ func HODLecturers(pool *pgxpool.Pool) http.HandlerFunc { return hodDeanLecturers
 // DeanLecturers — lecturers across the Dean's school (each row carries its department).
 func DeanLecturers(pool *pgxpool.Pool) http.HandlerFunc { return hodDeanLecturers(pool, true) }
 
-// QARepLecturers — the same org-scoped lecturer progress for the two QA rep roles, which have the
-// identical shape of oversight (one department, or one school) and so share the query. The scope
-// comes from the caller's role, never from the request.
+// QARepLecturers — the same org-scoped lecturer progress for the two QA field roles (QA_MONITOR
+// and QA_DEPT_REP), which have the identical shape of oversight (an assigned set of schools, or
+// one department) and so share the query and its resolution. The scope comes from the caller's
+// role and assignment, never from the request — an unassigned monitor resolves to the whole
+// institution (migration 110).
 func QARepLecturers(pool *pgxpool.Pool) http.HandlerFunc {
-	byDept, bySchool := hodDeanLecturers(pool, false), hodDeanLecturers(pool, true)
 	return func(w http.ResponseWriter, r *http.Request) {
-		if middleware.GetRole(r.Context()) == middleware.RoleQASchool {
-			bySchool(w, r)
+		tenantID := middleware.GetTenantID(r.Context())
+		userID := middleware.GetUserID(r.Context())
+		role := middleware.GetRole(r.Context())
+
+		conn, err := pool.Acquire(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, errBody("INTERNAL_ERROR", "db unavailable"))
 			return
 		}
-		byDept(w, r)
+		defer conn.Release()
+		if err := middleware.SetTenantConn(r.Context(), conn, tenantID); err != nil {
+			writeJSON(w, http.StatusInternalServerError, errBody("INTERNAL_ERROR", "db unavailable"))
+			return
+		}
+
+		s, ok := resolveOrgScope(r, pool, tenantID, userID, role)
+		if !ok {
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"scope":     map[string]string{"department": s.Department, "school": s.School},
+				"lecturers": []lecturerProgress{},
+				"message":   "No department/school is set on your account — ask an admin to set it.",
+			})
+			return
+		}
+
+		// Group by lecturer; the scope filter on `courses` confines the result to the caller's
+		// org unit, or to everything when they are unbounded (DQA-style monitor).
+		args := []interface{}{tenantID}
+		rows, err := conn.Query(r.Context(), `
+			SELECT l.staff_id, l.full_name,
+			       COALESCE(MAX(c.department),''), COALESCE(MAX(c.school),''),
+			       COUNT(DISTINCT la.unit_id) AS unit_count,
+			       COUNT(DISTINCT p.patrol_id) FILTER (WHERE p.taught) AS taught_count,
+			       COUNT(DISTINCT p.patrol_id) AS patrolled_count
+			FROM lecturers l
+			JOIN lecturer_assignments la ON la.lecturer_id = l.lecturer_id
+			JOIN course_units cu ON cu.unit_id = la.unit_id
+			JOIN courses c ON c.course_id = cu.course_id
+			LEFT JOIN lecturer_patrol_logs p
+			       ON p.lecturer_id = l.staff_id
+			WHERE l.tenant_id = $1`+s.whereScope(&args)+`
+			GROUP BY l.staff_id, l.full_name
+			ORDER BY l.full_name`, args...)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, errBody("INTERNAL_ERROR", err.Error()))
+			return
+		}
+		defer rows.Close()
+
+		out := []lecturerProgress{}
+		for rows.Next() {
+			var lp lecturerProgress
+			if rows.Scan(&lp.StaffID, &lp.FullName, &lp.Department, &lp.School,
+				&lp.UnitCount, &lp.TaughtCount, &lp.PatrolledCount) == nil {
+				out = append(out, lp)
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"scope":     map[string]string{"department": s.Department, "school": s.School},
+			"lecturers": out,
+		})
 	}
 }

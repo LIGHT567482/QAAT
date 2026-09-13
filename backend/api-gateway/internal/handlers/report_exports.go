@@ -325,7 +325,7 @@ func QAStudentAttendanceReport(pool *pgxpool.Pool, format string) http.HandlerFu
 		// qaFiltersScoped, NOT qaFilters. This is the download of the table on screen, and the two
 		// must be bounded identically: the JSON view has always applied the caller's own college or
 		// department, and this took the unscoped filters. While only institution-wide offices could
-		// reach the endpoint the difference was invisible — the moment a QA school handler or dept
+		// reach the endpoint the difference was invisible — the moment a QA monitor or dept
 		// rep was allowed to export, the button beneath their own college's table would have
 		// handed them the whole institution's student record.
 		list, err := queryStudentAttendance(r.Context(), pool, tenantID, qaFiltersScoped(r, pool))

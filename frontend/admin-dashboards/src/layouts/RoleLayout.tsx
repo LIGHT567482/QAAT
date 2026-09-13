@@ -170,21 +170,27 @@ const NAV: Record<Role, NavLink[]> = {
     { label: 'QA Reports',          path: '/dqa/qa-reports' },
     { label: 'Messages & Alerts',   path: '/dqa/messages' },
   ],
-  QA_OFFICER: [
+  // ONE QA monitor role (migration 110) — the officer, patroller and school-handler were three
+  // sidebars for one job and now share one console. It reads BOTH trees: the org views (/qa-school)
+  // scoped to the colleges an admin assigned, and the /qa pages whose reporting was always
+  // institution-wide. An unassigned monitor sees the whole institution in the same views.
+  QA_MONITOR: [
+    { label: 'Overview',            path: '/qa-school' },
+    { label: 'Departments & Heads', path: '/qa-school/departments' },
+    { label: 'QA Coverage',         path: '/qa-school/qa-departments' },
+    { label: 'Lecturers',           path: '/qa-school/lecturers' },
+    { label: 'Lecturer Attendance', path: '/qa-school/lecturer-attendance' },
     { label: 'QA Reports',          path: '/qa/reports' },
+    // DEFERRED TO V2 — { label: 'Student Attendance',  path: '/qa/student-attendance' },
+    // DEFERRED TO V2 — { label: 'Manual Correction',   path: '/qa/correction' },  // writes STUDENT attendance
+    // DEFERRED TO V2 — { label: 'Device Resets',       path: '/qa/device-reset' },
+    { label: 'Coordinator Health',  path: '/qa/coordinator-health' },
+    { label: 'Presence Disputes',   path: '/qa/presence-claims' },
     { label: 'Timetable',           path: '/qa/timetable' },
     { label: 'Free Rooms',          path: '/qa/free-rooms' },
     { label: 'Employee Attendance', path: '/qa/employee-attendance' },
-    // DEFERRED TO V2 — { label: 'Student Attendance',  path: '/qa/student-attendance' },
     { label: 'Check-in Attempts',   path: '/qa/checkin-attempts' },
     { label: 'Pending Sync',        path: '/qa/pending-sync' },
-    { label: 'Lecturer Attendance', path: '/qa/lecturer-attendance' },
-    // DEFERRED TO V2 — Manual Correction writes STUDENT attendance.
-    // { label: 'Manual Correction',   path: '/qa/correction' },
-
-    { label: 'Coordinator Health',  path: '/qa/coordinator-health' },
-    { label: 'Presence Disputes',   path: '/qa/presence-claims' },
-    // DEFERRED TO V2 — { label: 'Device Resets',       path: '/qa/device-reset' },
     { label: 'Messages & Alerts',   path: '/qa/messages' },
   ],
   COORDINATOR: [],
@@ -231,23 +237,9 @@ const NAV: Record<Role, NavLink[]> = {
     { label: 'Rooms',           path: '/tlc/rooms' },
     { label: 'Free Rooms',      path: '/tlc/free-rooms' },
   ],
-  // These two work from the phone, not here. Empty rather than absent so the map covers the
+  // These work from the phone, not here. Empty rather than absent so the map covers the
   // whole Role union and a new role cannot be forgotten silently.
-  QA_PATROLLER: [],
   STUDENT: [],
-  QA_SCHOOL_HANDLER: [
-    { label: 'Overview',        path: '/qa-school' },
-    { label: 'Departments & Heads', path: '/qa-school/departments' },
-    { label: 'QA Coverage',     path: '/qa-school/qa-departments' },
-    { label: 'Lecturers',       path: '/qa-school/lecturers' },
-    // DEFERRED TO V2 — { label: 'Student Attendance',  path: '/qa-school/student-attendance' },
-    { label: 'Lecturer Attendance', path: '/qa-school/lecturer-attendance' },
-    // DEFERRED TO V2 — { label: 'At-risk Students', path: '/qa-school/at-risk' },
-    { label: 'QA Reports',      path: '/qa-school/reports' },
-    { label: 'Presence Disputes', path: '/qa-school/presence-claims' },
-    { label: 'Timetable',       path: '/qa-school/timetable' },
-    { label: 'Messages & Alerts', path: '/qa-school/messages' },
-  ],
 }
 
 // The ADMIN sidebar lists EVERY management page so nothing is buried behind the
@@ -294,9 +286,9 @@ function Sidebar({ role, brand }: { role: Role; brand: Branding | null }) {
   // on navigation (so it clears after the user reads their inbox).
   const [unread, setUnread] = useState(0)
   useEffect(() => {
-    // Every role with a Messages inbox polls the badge — the three QA field roles share the
-    // DQA channel, so they all have one.
-    const withInbox: Role[] = ['DQA_DIRECTOR', 'QA_OFFICER', 'QA_DEPT_REP', 'QA_SCHOOL_HANDLER']
+    // Every role with a Messages inbox polls the badge — QA monitors and the department rep
+    // share the QA channel, so they all have one.
+    const withInbox: Role[] = ['DQA_DIRECTOR', 'QA_MONITOR', 'QA_DEPT_REP']
     if (!withInbox.includes(role)) return
     let alive = true
     const fetchUnread = () => api.get<{ unread: number }>('/api/v1/messages/unread-count')

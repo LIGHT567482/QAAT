@@ -68,10 +68,10 @@ INSERT INTO venues (venue_id, tenant_id, name, building) VALUES ('MANT-LR9','$TE
 INSERT INTO users (tenant_id, email, password_hash, role, full_name, is_active, staff_id, department, school, force_password_change) VALUES
  ('$TEN','mant.admin@kiu.ac.ug',  crypt('AdmPass12345', gen_salt('bf',10)),'ADMIN',       'MANT Admin',  true,'MANT-ADM',NULL,NULL,false),
  ('$TEN','mant.tlc@kiu.ac.ug',    crypt('TlcPass12345', gen_salt('bf',10)),'TLC',         'MANT TLC',    true,'MANT-TLC','MANTEST Computing','MANTEST College',false),
- ('$TEN','mant.monitor@kiu.ac.ug',crypt('MonPass12345', gen_salt('bf',10)),'QA_PATROLLER','MANT Monitor',true,'MANT-MON',NULL,NULL,false),
+ ('$TEN','mant.monitor@kiu.ac.ug',crypt('MonPass12345', gen_salt('bf',10)),'QA_MONITOR','MANT Monitor',true,'MANT-MON',NULL,NULL,false),
  ('$TEN','mant.vc@kiu.ac.ug',     crypt('VcPass12345',  gen_salt('bf',10)),'VC',          'MANT VC',     true,'MANT-VC',NULL,NULL,false),
  ('$TEN','mant.dvc@kiu.ac.ug',    crypt('DvcPass12345', gen_salt('bf',10)),'DVC',         'MANT DVC',    true,'MANT-DVC',NULL,NULL,false),
- ('$TEN','mant.qa@kiu.ac.ug',     crypt('QaPass12345',  gen_salt('bf',10)),'QA_OFFICER',  'MANT QA',     true,'MANT-QA','MANTEST Computing','MANTEST College',false),
+ ('$TEN','mant.qa@kiu.ac.ug',     crypt('QaPass12345',  gen_salt('bf',10)),'QA_MONITOR',  'MANT QA',     true,'MANT-QA','MANTEST Computing','MANTEST College',false),
  ('$TEN','mant.dqa@kiu.ac.ug',    crypt('DqaPass12345', gen_salt('bf',10)),'DQA_DIRECTOR','MANT DQA',    true,'MANT-DQA',NULL,NULL,false);
 INSERT INTO lecturers (tenant_id, full_name, email, staff_id, department) VALUES
  ('$TEN','MANtest Lecturer','mant.l1@kiu.ac.ug','MANT-L1','MANTEST Computing'),

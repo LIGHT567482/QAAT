@@ -2,12 +2,13 @@ package handlers
 
 // QA representative subsystem (Phase 4). Two org-scoped QA roles sit below the DQA:
 //
-//   QA_DEPT_REP        → one department (users.department)
-//   QA_SCHOOL_HANDLER  → one school/college (users.school)
+//   QA_MONITOR     → the schools an admin assigned them (qa_monitor_schools, migration 110);
+//                    with none assigned their remit is the whole institution
+//   QA_DEPT_REP    → one department (users.department)
 //
 // Both walk their unit, fill the monitoring workbook they already use on paper, and upload it.
 // The recognised rows are parsed into `lecturer_patrol_logs` with entry_method='QA_REP_UPLOAD' so
-// they land in the same reports as the patroller app's observations, and the original workbook is
+// they land in the same reports as the monitor app's observations, and the original workbook is
 // kept verbatim as the evidence behind the submission.
 //
 //   GET    /api/v1/qa-rep/scope
@@ -45,15 +46,15 @@ type qaScope struct {
 	ScopeKind  string `json:"scope_kind"` // DEPARTMENT | SCHOOL | ALL
 	Department string `json:"department"`
 	School     string `json:"school"`
-	// Schools is every college a QA school handler covers (migration 075). One
-	// handler is routinely given several, and the single School field above could
-	// hold only the first — so the rest of their institution was not forbidden,
-	// it was absent, which reads as an empty page rather than a missing permission.
+	// Schools is every college a QA monitor covers (migration 110). One monitor is routinely
+	// given several, and the single School field above could hold only the first — so the rest
+	// of their institution was not forbidden, it was absent, which reads as an empty page rather
+	// than a missing permission.
 	Schools []string `json:"schools,omitempty"`
 	Name    string   `json:"full_name"`
 	StaffID string   `json:"staff_id"`
-	// Unscoped is true for the oversight roles (DQA/QA officer/VC/admin) that read every
-	// submission rather than one department's.
+	// Unscoped is true for the oversight roles (DQA/QA monitor with no schools assigned/VC/admin)
+	// that read every submission rather than one department's or school's.
 	Unscoped bool `json:"unscoped"`
 }
 
@@ -71,7 +72,9 @@ func (s qaScope) Label() string {
 }
 
 // resolveQAScope reads the caller's org unit off their user row. The role decides which of the two
-// columns scopes them: a school handler is bounded by users.school, a dept rep by users.department.
+// columns scopes them: a monitor is bounded by the schools an admin assigned (qa_monitor_schools,
+// with the legacy users.school folded in), a dept rep by users.department. A monitor with no
+// schools assigned covers the whole institution rather than an empty page.
 func resolveQAScope(ctx context.Context, conn qaRowQuerier, userID, role string) (qaScope, error) {
 	s := qaScope{Role: role}
 	err := conn.QueryRow(ctx,
@@ -82,15 +85,21 @@ func resolveQAScope(ctx context.Context, conn qaRowQuerier, userID, role string)
 		return s, err
 	}
 	switch role {
-	case middleware.RoleQASchool, middleware.RoleDean:
+	case middleware.RoleQAMonitor, middleware.RoleQASchool, middleware.RoleDean:
 		s.ScopeKind = "SCHOOL"
-		// Load the handler's other colleges. A DEAN is genuinely single-school and
-		// will simply have no rows here; a QA handler usually has several.
+		// Load the monitor's assigned colleges. A DEAN is genuinely single-school, and a
+		// legacy QA_SCHOOL_HANDLER token (pre-110) still reads user_schools; the merged
+		// QA_MONITOR reads qa_monitor_schools, which migration 110 seeded from that same table.
+		join := `user_schools us ON us.school_id = s.school_id`
+		filter := `us.user_id = $1::uuid`
+		if role == middleware.RoleQAMonitor {
+			join = `qa_monitor_schools us ON us.school_id = s.school_id`
+		}
 		if rows, qerr := conn.Query(ctx, `
 			SELECT s.name
-			  FROM user_schools us
-			  JOIN schools s ON s.school_id = us.school_id
-			 WHERE us.user_id = $1::uuid
+			  FROM schools s
+			  JOIN `+join+`
+			 WHERE `+filter+`
 			 ORDER BY s.name`, userID); qerr == nil {
 			for rows.Next() {
 				var n string
@@ -99,6 +108,12 @@ func resolveQAScope(ctx context.Context, conn qaRowQuerier, userID, role string)
 				}
 			}
 			rows.Close()
+		}
+		// Unassigned monitor → the whole institution, so their dashboards and reports are
+		// not suddenly empty. scopeSQL then treats them like the oversight roles.
+		if role == middleware.RoleQAMonitor && len(s.allSchools()) == 0 {
+			s.ScopeKind = "ALL"
+			s.Unscoped = true
 		}
 	case middleware.RoleQADeptRep, middleware.RoleHOD:
 		s.ScopeKind = "DEPARTMENT"
@@ -112,7 +127,7 @@ func resolveQAScope(ctx context.Context, conn qaRowQuerier, userID, role string)
 // qaRowQuerier is the sliver of pgx that both a pool and a pooled connection satisfy.
 type qaRowQuerier interface {
 	QueryRow(context.Context, string, ...interface{}) pgx.Row
-	// Query, so a school handler's several colleges can be read through the same
+	// Query, so a monitor's several assigned colleges can be read through the same
 	// connection that already has the tenant GUC set.
 	Query(context.Context, string, ...interface{}) (pgx.Rows, error)
 }
@@ -143,8 +158,8 @@ func withQAConn(pool *pgxpool.Pool, w http.ResponseWriter, r *http.Request,
 // scopeSQL returns a WHERE fragment + arg confining a query to the caller's org unit. `col` names
 // the department column and `schoolCol` the school column of the table being filtered.
 // scopeSQL renders the WHERE fragment that confines a query to the caller's org unit,
-// plus the value to bind. The value is `any` because a school handler binds a LIST:
-// they cover several colleges and each must match.
+// plus the value to bind. The value is `any` because a school-scoped role binds a LIST:
+// a monitor or a dean covers several colleges and each must match.
 func (s qaScope) scopeSQL(deptCol, schoolCol string, argN int) (string, any, bool) {
 	switch {
 	case s.Unscoped:
@@ -161,8 +176,8 @@ func (s qaScope) scopeSQL(deptCol, schoolCol string, argN int) (string, any, boo
 	return " AND false", nil, false
 }
 
-// allSchools is the handler's schools, with the legacy single column folded in so an
-// account that predates user_schools keeps working unchanged.
+// allSchools is the scoped role's schools, with the legacy single column folded in so an
+// account that predates the admin-managed assignment keeps working unchanged.
 func (s qaScope) allSchools() []string {
 	out := make([]string, 0, len(s.Schools)+1)
 	if strings.TrimSpace(s.School) != "" {
@@ -181,7 +196,7 @@ func (s qaScope) noScopeMessage() string {
 	if s.Unscoped {
 		return ""
 	}
-	if s.ScopeKind == "SCHOOL" && s.School == "" {
+	if s.ScopeKind == "SCHOOL" && len(s.allSchools()) == 0 {
 		return "No school/college is set on your account — ask an admin to set it before you can file reports."
 	}
 	if s.ScopeKind == "DEPARTMENT" && s.Department == "" {
@@ -215,8 +230,8 @@ func QARepScope(pool *pgxpool.Pool) http.HandlerFunc {
 // ─── Per-department roll-up ──────────────────────────────────────────────────
 
 // QARepDepartments — one row per department inside the caller's scope: how many lecturers, how many
-// were observed teaching, and when that department last filed a report. A school handler sees every
-// department in their school; a dept rep sees only their own.
+// were observed teaching, and when that department last filed a report. A monitor sees every
+// department in their assigned schools; a dept rep sees only their own.
 func QARepDepartments(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		withQAConn(pool, w, r, func(conn *pgxpool.Conn, tenantID string, scope qaScope) {
@@ -247,7 +262,7 @@ func QARepDepartments(pool *pgxpool.Pool) http.HandlerFunc {
 			type deptRow struct {
 				Department string `json:"department"`
 				School     string `json:"school"`
-				// Schools is every college a QA school handler covers (migration 075). One
+				// Schools is every college a QA monitor covers (migration 110). One monitor is
 				// handler is routinely given several, and the single School field above could
 				// hold only the first — so the rest of their institution was not forbidden,
 				// it was absent, which reads as an empty page rather than a missing permission.
@@ -318,7 +333,7 @@ type qaSubmission struct {
 }
 
 // QAListSubmissions — the submissions visible to the caller. A dept rep sees their department's, a
-// school handler their whole school's, and the oversight roles (DQA/QA officer/VC/admin) see all.
+// monitor (or dean) their schools', and the oversight roles (DQA/VC/admin) see all.
 func QAListSubmissions(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		withQAConn(pool, w, r, func(conn *pgxpool.Conn, tenantID string, scope qaScope) {
@@ -537,7 +552,7 @@ func QASubmitReport(pool *pgxpool.Pool) http.HandlerFunc {
 
 		withQAConn(pool, w, r, func(conn *pgxpool.Conn, tenantID string, scope qaScope) {
 			if scope.Unscoped {
-				writeJSON(w, http.StatusForbidden, errBody("FORBIDDEN", "only a QA department rep or school handler files reports"))
+				writeJSON(w, http.StatusForbidden, errBody("FORBIDDEN", "only a QA department rep, or a QA monitor with at least one school assigned, files reports"))
 				return
 			}
 			if msg := scope.noScopeMessage(); msg != "" {
@@ -950,18 +965,16 @@ func humanRole(role string) string {
 	switch role {
 	case middleware.RoleQADeptRep:
 		return "a QA department rep"
-	case middleware.RoleQASchool:
-		return "a QA school handler"
+	case middleware.RoleQAMonitor:
+		// The role's stored value is QA_MONITOR (migration 110). Legacy QA_OFFICER,
+		// QA_PATROLLER and QA_SCHOOL_HANDLER tokens map onto it for the JWT's life, so the
+		// pre-rename labels still resolve here to the same human sentence.
+		return "a QA monitor"
 	case middleware.RoleHOD:
 		return "a head of department"
 	case middleware.RoleDean:
 		return "a dean"
-	case middleware.RoleQAOfficer:
-		return "a QA officer"
-	case middleware.RolePatroller:
-		// The role's stored value is still QA_PATROLLER — renaming an enum breaks every token
-		// and every handset in the field — but "monitor" is what the institution calls the job,
-		// so it is what every sentence the user reads says.
+	case middleware.RoleQAOfficer, middleware.RolePatroller, middleware.RoleQASchool:
 		return "a QA monitor"
 	case middleware.RoleTLC:
 		return "a Teaching & Learning Centre officer"

@@ -59,7 +59,7 @@ BEGIN
   VALUES (v_tenant,'pctest.lec@'||v_dom, crypt('LecPass12345', gen_salt('bf',10)),'LECTURER','PCTest Lecturer',true,'PCTEST-LEC',false)
   RETURNING user_id INTO v_lec;
   INSERT INTO users (tenant_id, email, password_hash, role, full_name, is_active, staff_id, force_password_change)
-  VALUES (v_tenant,'pctest.qa@'||v_dom, crypt('QaPass12345', gen_salt('bf',10)),'QA_OFFICER','PCTest QA Officer',true,'PCTEST-QA',false)
+  VALUES (v_tenant,'pctest.qa@'||v_dom, crypt('QaPass12345', gen_salt('bf',10)),'QA_MONITOR','PCTest QA Monitor',true,'PCTEST-QA',false)
   RETURNING user_id INTO v_qa;
 
   INSERT INTO lecturers (tenant_id, staff_id, full_name, email, user_id)

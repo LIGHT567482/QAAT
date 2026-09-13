@@ -19,17 +19,15 @@ import { useAuth, type Role } from '../contexts/AuthContext'
 const ROLE_LABEL: Record<Role, string> = {
   VC: 'Vice-Chancellor',
   DQA_DIRECTOR: 'Director of Quality Assurance',
-  QA_OFFICER: 'Quality Assurance Officer',
+  QA_MONITOR: 'QA Monitor',
   COORDINATOR: 'Course Coordinator',
   ADMIN: 'Administrator',
   LECTURER: 'Lecturer',
   HOD: 'Head of Department',
   DEAN: 'Dean',
-  QA_SCHOOL_HANDLER: 'QA School Handler',
   QA_DEPT_REP: 'QA Department Representative',
   TLC: 'Teaching & Learning Centre',
   // No web dashboard — present only so the type covers every role sign-in can return.
-  QA_PATROLLER: 'QA Monitor',
   STUDENT: 'Student',
 }
 

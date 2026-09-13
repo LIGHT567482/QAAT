@@ -159,14 +159,14 @@ void main() {
   });
 
   testWidgets(
-      'a QA patroller is routed to the monitor app, never to the hub '
+      'a QA monitor is routed to the monitor app, never to the hub '
       'or the placeholder', (tester) async {
     DeviceFingerprint.testOverride = 'fp-test';
     addTearDown(() => DeviceFingerprint.testOverride = null);
 
     await tester.pumpWidget(app(const LoginResult(
       token: 'TOK',
-      role: 'QA_PATROLLER',
+      role: 'QA_MONITOR',
       userId: 'u9',
       tenantId: 't1',
       fullName: 'Jane Patroller',

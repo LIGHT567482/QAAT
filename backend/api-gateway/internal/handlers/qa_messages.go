@@ -11,26 +11,28 @@ import (
 	"github.com/qaat/api-gateway/internal/middleware"
 )
 
-// DQA ⇄ QA-officer in-app messaging. The DQA director shares reports/notifications to
-// QA officers (all / by department / by college-school); QA officers message the DQA back.
-// Optional inline file attachment. adminPool + explicit tenant scoping on every query.
+// DQA ⇄ QA-field in-app messaging. The DQA director shares reports/notifications to
+// QA monitors (all / by department / by college-school); QA monitors and the dept reps
+// message the DQA back. Optional inline file attachment. adminPool + explicit tenant
+// scoping on every query.
 
 const maxAttachmentBytes = 8 << 20 // 8 MiB
 
-// isQAFieldRole reports whether the role is one of the QA people in the field, below the DQA. All
-// three carry a department and/or a school on their account and are targeted the same way, so the
-// DQA's DEPARTMENT/SCHOOL broadcasts reach the reps of that unit exactly as they reach its QA
-// officer, and all three reply up the same channel.
+// isQAFieldRole reports whether the role is one of the QA people in the field, below the DQA.
+// After migration 110 there are two: the QA MONITOR (the merged officer/patroller/school
+// handler) and the QA dept rep. Both carry a department and/or a school on their account and
+// are targeted the same way, so the DQA's DEPARTMENT/SCHOOL broadcasts reach the reps of that
+// unit exactly as they reach its monitor, and both reply up the same channel.
 func isQAFieldRole(role string) bool {
 	switch role {
-	case middleware.RoleQAOfficer, middleware.RoleQADeptRep, middleware.RoleQASchool:
+	case middleware.RoleQAMonitor, middleware.RoleQADeptRep:
 		return true
 	}
 	return false
 }
 
 // qaFieldRolesSQL is the same set as a SQL list, for the audience lookup.
-const qaFieldRolesSQL = `('QA_OFFICER','QA_DEPT_REP','QA_SCHOOL_HANDLER')`
+const qaFieldRolesSQL = `('QA_MONITOR','QA_DEPT_REP')`
 
 // SendQAMessage — POST /api/v1/messages
 func SendQAMessage(pool *pgxpool.Pool) http.HandlerFunc {
@@ -60,7 +62,7 @@ func SendQAMessage(pool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 
-		// RBAC on audience: the DQA broadcasts down to QA officers; QA officers reply up to the DQA.
+		// RBAC on audience: the DQA broadcasts down to the QA field roles; the field roles reply up to the DQA.
 		switch role {
 		case middleware.RoleDQADirector:
 			if req.Audience != "ALL_QA" && req.Audience != "DEPARTMENT" && req.Audience != "SCHOOL" {
@@ -91,7 +93,7 @@ func SendQAMessage(pool *pgxpool.Pool) http.HandlerFunc {
 				writeJSON(w, http.StatusForbidden, errBody("FORBIDDEN", "only the DQA director and the QA field roles can send messages"))
 				return
 			}
-			// QA officers and the department/school reps can only message the DQA director.
+			// QA monitors and the dept reps can only message the DQA director.
 			req.Audience = "DQA"
 			req.AudienceValue = ""
 		}
@@ -172,11 +174,19 @@ func ListQAMessages(pool *pgxpool.Pool) http.HandlerFunc {
 			box = "inbox"
 		}
 
-		// The caller's own department/school (drives which DEPARTMENT/SCHOOL messages reach a QA officer).
+		// The caller's own department/school (drives which DEPARTMENT/SCHOOL messages reach a QA field role).
 		var dept, school string
 		_ = pool.QueryRow(r.Context(),
 			`SELECT COALESCE(department,''), COALESCE(school,'') FROM users WHERE user_id = $1 AND tenant_id = $2`,
 			userID, tenantID).Scan(&dept, &school)
+		// A QA monitor's colleges are admin-assigned in qa_monitor_schools (migration 110) and may
+		// hold schools their users.school column never carried — so a SCHOOL broadcast has to match
+		// the join table too, or a monitor assigned three colleges would silently miss the broadcast
+		// for two of them. Read it over a tenant-scoped connection: the table is RLS-protected.
+		monitorScopes := []string{}
+		if role == middleware.RoleQAMonitor {
+			monitorScopes = normaliseAliases(append(monitorSchools(r.Context(), pool, tenantID, userID), strings.TrimSpace(school)))
+		}
 
 		// The read flag is a LEFT JOIN on this caller's read rows.
 		base := `
@@ -203,12 +213,17 @@ func ListQAMessages(pool *pgxpool.Pool) http.HandlerFunc {
 			cond = "AND m.audience = 'DQA' "
 		case isQAFieldRole(role):
 			// QA inbox = broadcasts that target them: all QA, their department, or their school.
-			// Same for an officer and for a department/school rep — they are targeted identically.
-			// audience_value may hold several departments/schools joined by '||' (DQA multi-select).
+			// Same for a monitor and for a dept rep — they are targeted identically. audience_value
+			// may hold several departments/schools joined by '||' (DQA multi-select).
 			cond = `AND ( m.audience = 'ALL_QA'
 			             OR (m.audience = 'DEPARTMENT' AND $3 = ANY(string_to_array(m.audience_value, '||')))
-			             OR (m.audience = 'SCHOOL'     AND $4 = ANY(string_to_array(m.audience_value, '||'))) ) `
-			args = append(args, dept, school)
+			             OR (m.audience = 'SCHOOL'     AND $4 = ANY(string_to_array(m.audience_value, '||')))
+			             -- a monitor's admin-assigned colleges (migration 110), matched against the
+			             -- broadcast's chosen school(s) case-insensitively
+			             OR (m.audience = 'SCHOOL' AND EXISTS (
+			                   SELECT 1 FROM unnest(string_to_array(lower(m.audience_value),'||')) v
+			                    WHERE btrim(v) = ANY($5))) ) `
+			args = append(args, dept, school, monitorScopes)
 		default:
 			writeJSON(w, http.StatusForbidden, errBody("FORBIDDEN", "not a QA role or the DQA director"))
 			return
@@ -247,6 +262,10 @@ func UnreadQAMessageCount(pool *pgxpool.Pool) http.HandlerFunc {
 		_ = pool.QueryRow(r.Context(),
 			`SELECT COALESCE(department,''), COALESCE(school,'') FROM users WHERE user_id = $1 AND tenant_id = $2`,
 			userID, tenantID).Scan(&dept, &school)
+		monitorScopes := []string{}
+		if role == middleware.RoleQAMonitor {
+			monitorScopes = normaliseAliases(append(monitorSchools(r.Context(), pool, tenantID, userID), strings.TrimSpace(school)))
+		}
 
 		q := `SELECT count(*) FROM qa_messages m
 		      LEFT JOIN qa_message_reads rd ON rd.message_id = m.message_id AND rd.user_id = $2
@@ -256,8 +275,13 @@ func UnreadQAMessageCount(pool *pgxpool.Pool) http.HandlerFunc {
 		case role == middleware.RoleDQADirector:
 			q += "m.audience = 'DQA'"
 		case isQAFieldRole(role):
-			q += "(m.audience='ALL_QA' OR (m.audience='DEPARTMENT' AND $3=ANY(string_to_array(m.audience_value,'||'))) OR (m.audience='SCHOOL' AND $4=ANY(string_to_array(m.audience_value,'||'))))"
-			args = append(args, dept, school)
+			q += `(m.audience='ALL_QA'
+			   OR (m.audience='DEPARTMENT' AND $3=ANY(string_to_array(m.audience_value,'||')))
+			   OR (m.audience='SCHOOL' AND $4=ANY(string_to_array(m.audience_value,'||')))
+			   OR (m.audience='SCHOOL' AND EXISTS (
+			         SELECT 1 FROM unnest(string_to_array(lower(m.audience_value),'||')) v
+			          WHERE btrim(v) = ANY($5))))`
+			args = append(args, dept, school, monitorScopes)
 		default:
 			writeJSON(w, http.StatusOK, map[string]int{"unread": 0})
 			return
@@ -294,15 +318,34 @@ func MarkQAMessageRead(pool *pgxpool.Pool) http.HandlerFunc {
 }
 
 // QAAudiences — GET /api/v1/messages/audiences → the distinct departments and
-// college/schools that QA officers belong to, so the DQA composer targets real values.
+// college/schools the QA field roles belong to, so the DQA composer targets real values.
 func QAAudiences(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID := middleware.GetTenantID(r.Context())
+		conn, err := pool.Acquire(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, errBody("INTERNAL_ERROR", "db unavailable"))
+			return
+		}
+		defer conn.Release()
+		// qa_monitor_schools is RLS-protected, so the distinct list has to come from a
+		// tenant-scoped connection or every monitor-assigned college is invisible.
+		if err := middleware.SetTenantConn(r.Context(), conn, tenantID); err != nil {
+			writeJSON(w, http.StatusInternalServerError, errBody("INTERNAL_ERROR", "db unavailable"))
+			return
+		}
 		depts := []string{}
 		schools := []string{}
-		rows, err := pool.Query(r.Context(),
-			`SELECT DISTINCT COALESCE(department,''), COALESCE(school,'')
-			 FROM users WHERE tenant_id = $1 AND role IN `+qaFieldRolesSQL+``, tenantID)
+		// A monitor's colleges live in qa_monitor_schools, not on the account — so the distinct
+		// users.school list alone would omit them, and the DQA composer would have no way to aim a
+		// SCHOOL broadcast at them. Union the join table's school names in.
+		rows, err := conn.Query(r.Context(), `
+			SELECT DISTINCT COALESCE(department,''), COALESCE(school,'')
+			FROM users WHERE tenant_id = $1 AND role IN `+qaFieldRolesSQL+`
+			UNION SELECT '', COALESCE(s.name,'')
+			FROM qa_monitor_schools q
+			JOIN schools s ON s.school_id = q.school_id
+			WHERE q.tenant_id = $1`, tenantID)
 		if err == nil {
 			defer rows.Close()
 			dset, sset := map[string]bool{}, map[string]bool{}

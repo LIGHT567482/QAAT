@@ -71,7 +71,7 @@ INSERT INTO course_offerings (offering_id, tenant_id, course_id, session_type, s
  VALUES ('$OFF','$TEN','OTT-C','Day',2,1);
 INSERT INTO users (tenant_id, email, password_hash, role, full_name, is_active, staff_id, force_password_change) VALUES
  ('$TEN','ott.coord@$DOM',   crypt('CooPass12345', gen_salt('bf',10)),'COORDINATOR', 'OTT Coordinator', true,'OTT-CRD',false),
- ('$TEN','ott.monitor@$DOM', crypt('MonPass12345', gen_salt('bf',10)),'QA_PATROLLER','OTT Monitor',     true,'OTT-MON',false),
+ ('$TEN','ott.monitor@$DOM', crypt('MonPass12345', gen_salt('bf',10)),'QA_MONITOR','OTT Monitor',     true,'OTT-MON',false),
  ('$TEN','ott.lect@$DOM',    crypt('LecPass12345', gen_salt('bf',10)),'LECTURER',    'OTT Lecturer',    true,'OTT-LEC',false);
 INSERT INTO lecturers (tenant_id, full_name, email, staff_id, user_id)
  SELECT '$TEN','OTT Lecturer','ott.lect@$DOM','OTT-LEC', user_id FROM users WHERE email='ott.lect@$DOM';

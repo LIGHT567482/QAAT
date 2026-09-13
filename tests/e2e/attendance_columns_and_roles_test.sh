@@ -62,8 +62,8 @@ INSERT INTO course_offerings (offering_id, tenant_id, course_id, session_type, s
  VALUES ('$OFF','$TEN','COLT-COURSE','Day',2,1,'August Intake');
 INSERT INTO users (tenant_id, email, password_hash, role, full_name, is_active, staff_id, department, school, force_password_change) VALUES
  ('$TEN','colt.admin@kiu.ac.ug',   crypt('AdmPass12345', gen_salt('bf',10)),'ADMIN',       'COLT Admin',   true,'COLT-ADM',NULL,NULL,false),
- ('$TEN','colt.qa@kiu.ac.ug',      crypt('QaPass12345',  gen_salt('bf',10)),'QA_OFFICER',  'COLT QA',      true,'COLT-QA','COLTEST Computing','COLTEST School',false),
- ('$TEN','colt.monitor@kiu.ac.ug', crypt('MonPass12345', gen_salt('bf',10)),'QA_PATROLLER','COLT Monitor', true,'COLT-MON',NULL,NULL,false),
+ ('$TEN','colt.qa@kiu.ac.ug',      crypt('QaPass12345',  gen_salt('bf',10)),'QA_MONITOR',  'COLT QA',      true,'COLT-QA','COLTEST Computing','COLTEST School',false),
+ ('$TEN','colt.monitor@kiu.ac.ug', crypt('MonPass12345', gen_salt('bf',10)),'QA_MONITOR','COLT Monitor', true,'COLT-MON',NULL,NULL,false),
  ('$TEN','colt.tlc@kiu.ac.ug',     crypt('TlcPass12345', gen_salt('bf',10)),'TLC',         'COLT TLC',     true,'COLT-TLC','COLTEST Computing','COLTEST School',false),
  ('$TEN','colt.coord@kiu.ac.ug',   crypt('CooPass12345', gen_salt('bf',10)),'COORDINATOR', 'COLT Coord',   true,'COLT-CRD',NULL,NULL,false),
  ('$TEN','colt.lect@kiu.ac.ug',    crypt('LecPass12345', gen_salt('bf',10)),'LECTURER',    'COLT Lecturer',true,'COLT-LEC',NULL,NULL,false);

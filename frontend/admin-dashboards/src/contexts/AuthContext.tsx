@@ -1,19 +1,18 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 
 export type Role =
-  | 'VC' | 'DQA_DIRECTOR' | 'QA_OFFICER' | 'COORDINATOR' | 'ADMIN' | 'LECTURER'
+  | 'VC' | 'DQA_DIRECTOR' | 'QA_MONITOR' | 'COORDINATOR' | 'ADMIN' | 'LECTURER'
   // Org-scoped oversight. Each is bounded by the department or college/school on
-  // the account: HOD/QA_DEPT_REP by department, DEAN/QA_SCHOOL_HANDLER by school.
-  | 'HOD' | 'DEAN' | 'QA_SCHOOL_HANDLER' | 'QA_DEPT_REP'
+  // the account: HOD/QA_DEPT_REP by department, DEAN by school, and QA_MONITOR by
+  // the schools an admin assigned them (qa_monitor_schools, migration 110).
+  | 'HOD' | 'DEAN' | 'QA_DEPT_REP'
   // Teaching & Learning Centre — owns the timetable. It used to be the IT
   // administrator's by default, which was an accident of who had the button.
   | 'TLC'
   // Roles with no web dashboard. They are in the union because sign-in has to be able to NAME
   // them: a role the type does not know about falls through to "this account has no dashboard",
-  // which reads like a fault rather than "your round is on the phone". The stored value of the
-  // monitor role is still QA_PATROLLER — see lib/roleLabel.ts for why the word and the value
-  // differ.
-  | 'QA_PATROLLER' | 'STUDENT'
+  // which reads like a fault rather than "your round is on the phone".
+  | 'STUDENT'
 
 interface AuthUser {
   userId: string

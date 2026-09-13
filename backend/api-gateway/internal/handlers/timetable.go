@@ -2,11 +2,11 @@ package handlers
 
 // Tenant timetable — the per-(offering, unit) weekly schedule (day + start + length)
 // that COORDINATORS fill (set-once/lock via the coordinator schedule endpoints),
-// surfaced to the ADMIN and QA OFFICER dashboards with OVERRIDE power.
+// surfaced to the ADMIN and QA MONITOR dashboards with OVERRIDE power.
 //
-//   GET /api/v1/dashboard/timetable   (ADMIN, QA_OFFICER) — every offering's units
+//   GET /api/v1/dashboard/timetable   (ADMIN, QA_MONITOR) — every offering's units
 //        with their scheduled day/time (or unscheduled).
-//   PUT /api/v1/dashboard/timetable   (ADMIN, QA_OFFICER) — set/override one unit's
+//   PUT /api/v1/dashboard/timetable   (ADMIN, QA_MONITOR) — set/override one unit's
 //        schedule for an offering, ignoring the coordinator's lock.
 //
 // This is the single source of truth the coordinator's own timetable + daily

@@ -159,8 +159,12 @@ export default function App() {
             <Route path="/dqa/reports"             element={<DQAReportsHub />} />
           </Route>
 
-          {/* ── QA Officer ─────────────────────────────────────────────── */}
-          <Route element={<RoleLayout allowedRoles={['QA_OFFICER']} />}>
+          {/* ── QA Monitor ──────────────────────────────────────────────
+              One role (migration 110) with one console across both trees below:
+              the officer's institution-wide reporting (/qa/*) and the school-scoped
+              org views (/qa-school/*). Both trees admit the same role, so a monitor
+              lands on the org overview and navigates everywhere from there. */}
+          <Route element={<RoleLayout allowedRoles={['QA_MONITOR']} />}>
             <Route path="/qa/reports"           element={<QAReports />} />
             {/* STUDENT MODULE: DEFERRED TO V2 — original route kept below for restore. */}
             <Route path="/qa/device-reset" element={<DeferredToV2 />} />
@@ -299,7 +303,7 @@ export default function App() {
             <Route path="/qa-dept/timetable" element={<Timetable readOnly />} />
             <Route path="/qa-dept/messages" element={<Inbox />} />
           </Route>
-          <Route element={<RoleLayout allowedRoles={['QA_SCHOOL_HANDLER']} />}>
+          <Route element={<RoleLayout allowedRoles={['QA_MONITOR']} />}>
             <Route path="/qa-school"           element={<OrgOverview level="qa-school" />} />
             <Route path="/qa-school/departments" element={<OrgDepartments />} />
             <Route path="/qa-school/qa-departments" element={<QAOrgDepartments />} />

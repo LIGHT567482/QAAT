@@ -77,7 +77,7 @@ func pdfEncoder(pdf *fpdf.Fpdf) func(string) string {
 // they all see it glued to the first header, as "<BOM>student_id".
 //
 // It goes on anyway, on every CSV, because of who opens these. They are dashboard downloads that a
-// QA officer, a dean or a marker opens in Excel; that is the whole reason the export button exists.
+// QA monitor, a dean or a marker opens in Excel; that is the whole reason the export button exists.
 // A first header cell that a script must trim is a small, visible, fixable problem. Text that
 // silently renders as gibberish in the one program everybody uses is neither small nor visible.
 //

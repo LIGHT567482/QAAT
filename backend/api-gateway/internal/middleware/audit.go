@@ -12,7 +12,7 @@ import (
 )
 
 // AuditLog writes a row to admin_audit_log for every state-mutating request
-// made by DQA_DIRECTOR, QA_OFFICER, VC, and ADMIN roles.
+// made by DQA_DIRECTOR, QA_MONITOR, VC, and ADMIN roles.
 // Read-only (GET) requests are not logged.
 func AuditLog(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

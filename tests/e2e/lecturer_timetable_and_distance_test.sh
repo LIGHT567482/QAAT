@@ -88,8 +88,8 @@ INSERT INTO users (tenant_id, email, password_hash, role, full_name, is_active, 
  ('$TEN','dl.lect@$DOM',  crypt('LecPass12345', gen_salt('bf',10)),'LECTURER','DL Lecturer',       true,'DL-LEC',false),
  ('$TEN','dl.other@$DOM', crypt('LecPass12345', gen_salt('bf',10)),'LECTURER','DL Other Lecturer', true,'DL-OTH',false),
  ('$TEN','dl.coord@$DOM', crypt('CooPass12345', gen_salt('bf',10)),'COORDINATOR','DL Coordinator', true,'DL-CRD',false),
- ('$TEN','dl.mon@$DOM',   crypt('MonPass12345', gen_salt('bf',10)),'QA_PATROLLER','DL Monitor',    true,'DL-MON',false),
- ('$TEN','dl.qao@$DOM',   crypt('QaoPass12345', gen_salt('bf',10)),'QA_OFFICER','DL QA Officer',    true,'DL-QAO',false);
+ ('$TEN','dl.mon@$DOM',   crypt('MonPass12345', gen_salt('bf',10)),'QA_MONITOR','DL Monitor',    true,'DL-MON',false),
+ ('$TEN','dl.qao@$DOM',   crypt('QaoPass12345', gen_salt('bf',10)),'QA_MONITOR','DL QA Officer',    true,'DL-QAO',false);
 INSERT INTO lecturers (tenant_id, full_name, email, staff_id, user_id)
  SELECT '$TEN','DL Lecturer','dl.lect@$DOM','DL-LEC', user_id FROM users WHERE email='dl.lect@$DOM';
 INSERT INTO lecturers (tenant_id, full_name, email, staff_id, user_id)

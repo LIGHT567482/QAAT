@@ -117,7 +117,7 @@ def add_user(email, role, pw_key, full_name):
 admin_id   = add_user("admin@nut.ac.ke",       "ADMIN",        "admin",    "Platform Admin")
 vc_id      = add_user("vc@nut.ac.ke",          "VC",           "vc",       "Prof. Alice Kamau")
 dqa_id     = add_user("dqa@nut.ac.ke",         "DQA_DIRECTOR", "dqa",      "Dr. Brian Otieno")
-qa_id      = add_user("qa@nut.ac.ke",          "QA_OFFICER",   "qa",       "Ms. Carol Njeri")
+qa_id      = add_user("qa@nut.ac.ke",          "QA_MONITOR",   "qa",       "Ms. Carol Njeri")
 
 # Three coordinators — one per course (admin creates these in real deployments)
 coord_cs_id = add_user("coord.cs@nut.ac.ke",  "COORDINATOR",  "coord_cs", "Dr. James Mwangi")
@@ -291,7 +291,7 @@ staff = [
     ("ADMIN",       "admin@nut.ac.ke",           PASSWORDS["admin"]),
     ("VC",          "vc@nut.ac.ke",              PASSWORDS["vc"] + " + TOTP"),
     ("DQA_DIRECTOR","dqa@nut.ac.ke",             PASSWORDS["dqa"] + " + TOTP"),
-    ("QA_OFFICER",  "qa@nut.ac.ke",              PASSWORDS["qa"]),
+    ("QA_MONITOR",  "qa@nut.ac.ke",              PASSWORDS["qa"]),
     ("COORDINATOR", "coord.cs@nut.ac.ke",        PASSWORDS["coord_cs"]
                                                  + "  ← CS Dept (Dr. Mwangi)"),
     ("COORDINATOR", "coord.se@nut.ac.ke",        PASSWORDS["coord_se"]

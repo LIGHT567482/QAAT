@@ -106,23 +106,23 @@ func venueChangeRecipients(ctx context.Context, conn interface {
 		   AND btrim(lower(l.staff_id)) = btrim(lower($3))
 		   AND l.user_id IS NOT NULL
 		UNION
-		-- the head of that department, and the dean / QA handler of that school
+		-- the head of that department, and the dean / QA monitor of that school
 		SELECT u.user_id::text
 		  FROM users u, unit_org o
 		 WHERE u.tenant_id = $1
 		   AND (
 		        (u.role IN ('HOD', 'QA_DEPT_REP')
 		         AND o.department <> '' AND btrim(lower(u.department)) = btrim(lower(o.department)))
-		     OR (u.role IN ('DEAN', 'QA_SCHOOL_HANDLER')
+		     OR (u.role IN ('DEAN', 'QA_MONITOR')
 		         AND o.school <> '' AND btrim(lower(u.school)) = btrim(lower(o.school)))
-		     -- a QA handler covering several colleges (migration 075)
-		     OR (u.role = 'QA_SCHOOL_HANDLER' AND o.school <> '' AND EXISTS (
-		           SELECT 1 FROM user_schools us
-		             JOIN schools s ON s.school_id = us.school_id
-		            WHERE us.user_id = u.user_id
+		     -- a QA monitor covering several colleges (migration 110)
+		     OR (u.role = 'QA_MONITOR' AND o.school <> '' AND EXISTS (
+		           SELECT 1 FROM qa_monitor_schools q
+		             JOIN schools s ON s.school_id = q.school_id
+		            WHERE q.user_id = u.user_id
 		              AND btrim(lower(s.name)) = btrim(lower(o.school))))
 		     -- quality assurance sees every informal change, institution-wide
-		     OR u.role IN ('DQA_DIRECTOR', 'QA_OFFICER')
+		     OR u.role IN ('DQA_DIRECTOR', 'QA_MONITOR')
 		   )`, tenantID, unitID, lecturerStaffID)
 	if err != nil {
 		return out

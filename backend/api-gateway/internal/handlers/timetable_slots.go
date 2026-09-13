@@ -121,7 +121,7 @@ func GetTimetableSlots(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 		// The whole institution's timetable stays READABLE for a departmental TLC — rooms are
 		// shared, and you cannot avoid a clash you cannot see. tlc_department is what they may
-		// EDIT; empty means everything, which is what an admin, a QA officer, and an
+		// EDIT; empty means everything, which is what an admin, a QA monitor, and an
 		// institution-wide TLC each get.
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"offerings": offerings,

@@ -20,7 +20,7 @@ package handlers
 // rows are marked so that whoever reads the register can tell which they are looking at.
 //
 // So each row keeps the phone's claimed time AND the server's receipt time, and is flagged as
-// captured offline. A QA officer reconciling a disputed lecture can then see that forty students
+// captured offline. A QA monitor reconciling a disputed lecture can then see that forty students
 // uploaded five minutes after the lecture ended, or that one uploaded three days later — and ask
 // about the second without having to doubt the first.
 //

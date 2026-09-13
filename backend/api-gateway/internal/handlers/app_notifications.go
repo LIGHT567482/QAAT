@@ -6,7 +6,7 @@ package handlers
 // lecturers they patrol and to the coordinator who owns it. Recipients are materialised at
 // send time so a reader's inbox (student / coordinator / lecturer) is a simple, fast lookup.
 //
-//   POST /api/v1/app-notifications                       (LECTURER, COORDINATOR, QA roles, QA_PATROLLER)
+//   POST /api/v1/app-notifications                       (LECTURER, COORDINATOR, org roles, QA_MONITOR, DQA_DIRECTOR)
 //   GET  /api/v1/app-notifications                       (any signed-in app user)
 //   GET  /api/v1/app-notifications/unread-count          (any signed-in app user)
 //   POST /api/v1/app-notifications/{id}/read             (any signed-in app user)
@@ -142,18 +142,17 @@ func resolveRecipients(pool *pgxpool.Pool, r *http.Request, tenantID, senderID, 
 		default:
 			return nil, nil
 		}
-	case middleware.RoleHOD, middleware.RoleDean, middleware.RoleQADeptRep, middleware.RoleQASchool:
+	case middleware.RoleHOD, middleware.RoleDean, middleware.RoleQADeptRep:
 		// Scope = the sender's own org unit, from their user account. Which of the two columns
 		// applies is decided by the role, not by anything in the request: a head of department and
-		// a QA department rep are both bounded by users.department, a dean and a QA school handler
-		// by users.school.
+		// a QA department rep are both bounded by users.department, a dean by users.school.
 		var dept, school string
 		_ = pool.QueryRow(r.Context(),
 			`SELECT COALESCE(department,''), COALESCE(school,'') FROM users WHERE user_id = $1::uuid AND tenant_id = $2`,
 			senderID, tenantID).Scan(&dept, &school)
 		scopeCol := "c.department"
 		scopeVal := dept
-		if senderRole == middleware.RoleDean || senderRole == middleware.RoleQASchool {
+		if senderRole == middleware.RoleDean {
 			scopeCol = "c.school"
 			scopeVal = school
 		}
@@ -166,7 +165,7 @@ func resolveRecipients(pool *pgxpool.Pool, r *http.Request, tenantID, senderID, 
 		// before the institution filled in the other one hold whichever was in use then. Address
 		// the alias set so a broadcast does not silently reach nobody after a rename.
 		scopeVals := normaliseAliases([]string{scopeVal})
-		if senderRole == middleware.RoleDean || senderRole == middleware.RoleQASchool {
+		if senderRole == middleware.RoleDean {
 			scopeVals = normaliseAliases(schoolAliases(r.Context(), pool, tenantID, scopeVal))
 		}
 		lecturersInScope := `
@@ -192,7 +191,7 @@ func resolveRecipients(pool *pgxpool.Pool, r *http.Request, tenantID, senderID, 
 		// department answers upward to their dean — yet neither could send the other so much as a
 		// notice. The dean could only address every lecturer in the school at once, going straight
 		// past the person actually responsible for them.
-		case "HODS": // DEAN / QA_SCHOOL_HANDLER → every HOD of a department in their school
+		case "HODS": // DEAN → every HOD of a department in her school
 			args = append(args, scopeVals)
 			sql = `SELECT u.user_id::text
 				FROM users u
@@ -231,41 +230,72 @@ func resolveRecipients(pool *pgxpool.Pool, r *http.Request, tenantID, senderID, 
 
 	// ── Quality Assurance → its own field staff ──────────────────────────────
 	//
-	// The QA officer and the DQA director could not send a notification to ANYONE. Every other
-	// role with people under it had a channel; the two roles that run the patrol round had none,
-	// so the only way to tell a patroller anything — a round reassigned, a room changed, a phone
-	// to bring in — was to find their number.
+	// The QA monitor and the DQA director could not send a notification to ANYONE. Every other
+	// role with people under it had a channel; the QA office that runs the patrol round had none,
+	// so the only way to tell a monitor anything — a round reassigned, a room changed, a phone to
+	// bring in — was to find their number.
 	//
-	// Patrollers are institution-wide, not scoped to a department or a school, which is why this
-	// is its own branch rather than another audience on the org-role case above: those queries all
-	// hang off the sender's department/school, and a patroller has neither. QA is the one office
-	// whose remit is the whole institution, so the scope is the tenant.
-	case middleware.RoleQAOfficer, middleware.RoleDQADirector, middleware.RolePatroller:
+	// QA is the one office whose remit is the whole institution, so the DQA director's scope is
+	// the tenant — which is why this is its own branch rather than another audience on the
+	// org-role case above (those queries all hang off the sender's department/school). A QA
+	// monitor sits on the same branch because they are QA field staff too, but their LECTURERS
+	// reach is narrowed to the schools an admin assigned them; with none assigned they inherit
+	// the officer's old institution-wide reach.
+	case middleware.RoleQAMonitor, middleware.RoleDQADirector:
 		switch audience {
 		// MONITORS/MONITOR are what the dashboards send now that the role is called QA Monitor.
 		// The old spellings are still accepted because a handset or a browser tab that has not
 		// been reloaded since the rename would otherwise fail to send a briefing, and the failure
 		// would look like the messaging feature being broken rather than a stale client.
 		case "MONITORS", "PATROLLERS": // every monitor in the institution
-			// is_active, because a suspended or departed patroller must not receive a round
+			// is_active, because a suspended or departed monitor must not receive a round
 			// briefing — and because a message that reports "sent to 9" when 3 of them cannot
 			// sign in is worse than no number at all.
 			sql = `SELECT user_id::text FROM users
-				WHERE tenant_id = $1 AND role = 'QA_PATROLLER' AND COALESCE(is_active, true)`
+				WHERE tenant_id = $1 AND role = 'QA_MONITOR' AND COALESCE(is_active, true)`
 		case "MONITOR", "PATROLLER": // one monitor, addressed by their staff id
 			args = append(args, targetID)
 			sql = `SELECT user_id::text FROM users
-				WHERE tenant_id = $1 AND role = 'QA_PATROLLER' AND COALESCE(is_active, true)
+				WHERE tenant_id = $1 AND role = 'QA_MONITOR' AND COALESCE(is_active, true)
 				  AND btrim(lower(COALESCE(staff_id,''))) = btrim(lower($2))`
-		// The rest of QA's reach, for the same reason: these roles had no way to write to anyone.
+		// The rest of QA's reach, for the same reason: this office had no way to write to anyone.
+		// LECTURERS is the one audience the monitor's assigned schools narrow: an alert from a
+		// monitor must not wander outside the schools they cover.
 		case "LECTURERS":
-			sql = `SELECT l.user_id::text FROM lecturers l
-				WHERE l.tenant_id = $1 AND l.user_id IS NOT NULL`
+			schools, scoped := monitorScopeSchools(pool, r, tenantID, senderID, senderRole)
+			if scoped {
+				args = append(args, schools)
+				sql = `SELECT DISTINCT l.user_id::text
+					FROM lecturers l
+					JOIN lecturer_assignments la ON la.lecturer_id = l.lecturer_id
+					JOIN course_units cu ON cu.unit_id = la.unit_id
+					JOIN courses c ON c.course_id = cu.course_id
+					WHERE l.tenant_id = $1 AND l.user_id IS NOT NULL
+					  AND btrim(lower(c.school)) = ANY($2)`
+			} else {
+				sql = `SELECT l.user_id::text FROM lecturers l
+					WHERE l.tenant_id = $1 AND l.user_id IS NOT NULL`
+			}
 		case "LECTURER":
+			// One specific lecturer, by staff id — but never outside the monitor's assigned
+			// schools. The clerk on the other end picks from the roster this query returns.
+			schools, scoped := monitorScopeSchools(pool, r, tenantID, senderID, senderRole)
 			args = append(args, targetID)
-			sql = `SELECT l.user_id::text FROM lecturers l
-				WHERE l.tenant_id = $1 AND l.user_id IS NOT NULL
-				  AND btrim(lower(l.staff_id)) = btrim(lower($2))`
+			if scoped {
+				args = append(args, schools)
+				sql = `SELECT DISTINCT l.user_id::text
+					FROM lecturers l
+					JOIN lecturer_assignments la ON la.lecturer_id = l.lecturer_id
+					JOIN course_units cu ON cu.unit_id = la.unit_id
+					JOIN courses c ON c.course_id = cu.course_id
+					WHERE l.tenant_id = $1 AND l.user_id IS NOT NULL
+					  AND btrim(lower(c.school)) = ANY($3)
+					  AND btrim(lower(l.staff_id)) = btrim(lower($2))`
+			} else {
+				sql = `SELECT l.user_id::text FROM lecturers l
+					WHERE l.tenant_id = $1 AND l.user_id IS NOT NULL
+					  AND btrim(lower(l.staff_id)) = btrim(lower($2))`
+			}
 		case "COORDINATORS", "COORDINATOR":
 			// ONE coordinator when a target is given, all of them when it is not. A monitor who
 			// finds a room empty flags it to the ONE coordinator who owns that room, not to every
@@ -466,17 +496,19 @@ func SendAppNotification(pool *pgxpool.Pool) http.HandlerFunc {
 			middleware.RoleHOD:         {"LECTURERS": true, "LECTURER": true, "DEAN": true, "DQA": true, "ADMIN": true},
 			middleware.RoleDean:        {"LECTURERS": true, "LECTURER": true, "HODS": true, "HOD": true, "DQA": true, "ADMIN": true},
 			middleware.RoleQADeptRep:   {"LECTURERS": true, "LECTURER": true, "DEAN": true, "DQA": true, "ADMIN": true},
-			middleware.RoleQASchool:    {"LECTURERS": true, "LECTURER": true, "HODS": true, "HOD": true, "DQA": true, "ADMIN": true},
-			// Quality Assurance reaches its own field staff. PATROLLERS is the round briefing —
-			// institution-wide, because that is the scope patrollers work at; PATROLLER is one
-			// person, by staff id.
-			middleware.RoleQAOfficer:   {"MONITORS": true, "MONITOR": true, "PATROLLERS": true, "PATROLLER": true, "LECTURERS": true, "LECTURER": true, "COORDINATORS": true},
-			middleware.RoleDQADirector: {"MONITORS": true, "MONITOR": true, "PATROLLERS": true, "PATROLLER": true, "LECTURERS": true, "LECTURER": true, "COORDINATORS": true},
+			// Quality Assurance reaches its own field staff, and the QA monitor can notify the
+			// lecturers and coordinators they witness on the round. PATROLLERS is the round
+			// briefing — institution-wide, because that is the scope patrols work at; PATROLLER is
+			// one person, by staff id. The legacy spellings and the merged names mean the same
+			// stored role and resolve identically.
+			//
 			// A QA monitor mid-round is a witness with a phone. When they find a room empty or an
 			// office unmanned, the alert to the lecturer who should be there and the coordinator
-			// who owns the room IS the finding — so patrollers can write to the lecturers they
-			// patrol (bulk or one, by staff id) and to the coordinators (bulk or one, by user id).
-			middleware.RolePatroller: {"LECTURERS": true, "LECTURER": true, "COORDINATORS": true, "COORDINATOR": true},
+			// who owns the room IS the finding — so a monitor can write to the lecturers they
+			// patrol (bulk or one, by staff id, within their assigned schools) and to the
+			// coordinators (bulk or one, by user id).
+			middleware.RoleQAMonitor:   {"MONITORS": true, "MONITOR": true, "PATROLLERS": true, "PATROLLER": true, "LECTURERS": true, "LECTURER": true, "COORDINATORS": true, "COORDINATOR": true},
+			middleware.RoleDQADirector: {"MONITORS": true, "MONITOR": true, "PATROLLERS": true, "PATROLLER": true, "LECTURERS": true, "LECTURER": true, "COORDINATORS": true, "COORDINATOR": true},
 		}
 		if !valid[role][req.Audience] {
 			writeJSON(w, http.StatusBadRequest, errBody("INVALID_REQUEST", "invalid audience for your role"))
@@ -509,6 +541,8 @@ func SendAppNotification(pool *pgxpool.Pool) http.HandlerFunc {
 		// particular coordinator whose id no longer resolves — stale list, cohort reassigned, the
 		// target simply not theirs to write to — gets a tick and never learns the message was
 		// discarded. The one thing they cannot afford is to think it arrived.
+		// nobody could be found to send this to — the person or group you chose is not one
+		// you can write to, or has no active accounts. Nothing was sent.
 		if len(recipients) == 0 {
 			writeJSON(w, http.StatusUnprocessableEntity, errBody("NO_RECIPIENTS",
 				"nobody could be found to send this to — the person or group you chose is not one "+

@@ -2,12 +2,11 @@
 #
 # WHAT THIS COVERS
 #
-#   1. THE RENAME. "Patrol" and "patroller" are gone from everything a person reads. The stored role
-#      value QA_PATROLLER deliberately survives — renaming a database enum means rewriting every row
-#      that holds it and invalidating every signed token that carries it, which is three ways to
-#      lock a live institution out of its own system in exchange for a word. The word is what people
-#      see, so the word is what changed; the tests below check the words, and check that the old
-#      audience code still works so a browser tab nobody has reloaded does not silently fail.
+#   1. THE MERGE. QA OFFICER / PATROLLER / SCHOOL HANDLER became a single role, `QA_MONITOR`
+#      (migration 110/111). Live accounts store QA_MONITOR; the legacy enum labels survive only so a
+#      token minted under an old label keeps working for the deploy window. The tests below check the
+#      words people read, and check that the old audience code still works so a browser tab nobody
+#      has reloaded does not silently fail.
 #
 #   2. ONE HOUR, SEVERAL UNIT CODES. The same content is required by several programmes and each
 #      codes it differently, so one lecture in one room satisfies two or three unit codes at once.
@@ -77,9 +76,9 @@ INSERT INTO course_offerings (offering_id, tenant_id, course_id, session_type, s
  ('$O_CS','$TEN','MR-CS','Day',3,1,'Bachelors','August Intake'),
  ('$O_OTHER','$TEN','MR-CS','Evening',3,1,'Bachelors','January Intake');
 INSERT INTO users (tenant_id, email, password_hash, role, full_name, is_active, staff_id, force_password_change) VALUES
- ('$TEN','mr.mon@$DOM',  crypt('MonPass12345', gen_salt('bf',10)),'QA_PATROLLER','MR Monitor',   true,'MR-MON',false),
+ ('$TEN','mr.mon@$DOM',  crypt('MonPass12345', gen_salt('bf',10)),'QA_MONITOR','MR Monitor',   true,'MR-MON',false),
  ('$TEN','mr.lect@$DOM', crypt('LecPass12345', gen_salt('bf',10)),'LECTURER',    'MR Lecturer',  true,'MR-LEC',false),
- ('$TEN','mr.qa@$DOM',   crypt('QaPass12345',  gen_salt('bf',10)),'QA_OFFICER',  'MR QA',        true,'MR-QA',false);
+ ('$TEN','mr.qa@$DOM',   crypt('QaPass12345',  gen_salt('bf',10)),'QA_MONITOR',  'MR QA',        true,'MR-QA',false);
 INSERT INTO lecturers (tenant_id, full_name, email, staff_id, user_id, department)
  SELECT '$TEN','MR Lecturer','mr.lect@$DOM','MR-LEC', user_id, 'MRtest Computer Science'
    FROM users WHERE email='mr.lect@$DOM';
@@ -134,8 +133,8 @@ check "the PIN screen says monitor" \
   "$(grep -c 'Change monitor PIN' frontend/coordinator-android/app/src/main/java/ug/qaat/coordinator/ui/PatrolPinGate.kt)" "1"
 check "the role is LABELLED QA Monitor" \
   "$(grep -c "QA_PATROLLER:      .QA Monitor" frontend/admin-dashboards/src/lib/roleLabel.ts)" "1"
-check "…while the STORED role value is untouched" \
-  "$(sql "SELECT role FROM users WHERE email='mr.mon@$DOM'")" "QA_PATROLLER"
+check "…while the STORED role value is the new one" \
+  "$(sql "SELECT role FROM users WHERE email='mr.mon@$DOM'")" "QA_MONITOR"
 # The dashboards now send MONITORS; a tab nobody has reloaded still sends PATROLLERS. Both must work
 # or the rename silently breaks messaging for everyone mid-deploy.
 R=$(body POST /api/v1/app-notifications "$QA" '{"audience":"MONITORS","subject":"MRtest brief","body":"new spelling"}')

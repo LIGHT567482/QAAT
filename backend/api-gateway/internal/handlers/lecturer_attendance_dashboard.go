@@ -1,6 +1,6 @@
 package handlers
 
-// Lecturer-attendance views for the oversight dashboards (QA Officer, VC, DQA
+// Lecturer-attendance views for the oversight dashboards (QA Monitor, VC, DQA
 // Director) — same data as the admin's lecturer-attendance pages, but scoped to
 // the CALLER's tenant (from the JWT) over the RLS pool, so no {tenant_id} path.
 
@@ -25,9 +25,11 @@ import (
 //
 // A BOUNDED ROLE WITH NO ORG UNIT SET MATCHES NOTHING, which is the whole reason this is a named
 // helper rather than an inline call. resolveOrgScope returns ok=false in that case, and the
-// tempting reading — "no scope, so no filter" — would hand a QA school handler whose account is
+// tempting reading — "no scope, so no filter" — would hand a QA monitor whose account is
 // half-configured the entire institution's teaching record. The safe reading of "your scope is
 // unset" is an empty page, and it is the same choice made in qaFiltersScoped and resolveRecipients.
+// (An unassigned QA monitor is the one deliberate exception: yes, that IS whole-institution —
+// migration 110 made no-school-assigned mean everything, not nothing.)
 func lecturerLogScope(r *http.Request, pool *pgxpool.Pool, tenantID string, args *[]interface{}) string {
 	s, ok := resolveOrgScope(r, pool, tenantID, middleware.GetUserID(r.Context()), middleware.GetRole(r.Context()))
 	if s.Unbounded {
@@ -52,11 +54,12 @@ func LecturerAttendanceLogsForCaller(pool *pgxpool.Pool) http.HandlerFunc {
 		defer conn.Release()
 		middleware.SetTenantConn(r.Context(), conn, tenantID) //nolint:errcheck
 
-		// ORG SCOPE. This page is read by the institution-wide offices (DQA, QA officer, VC) AND
-		// by roles bounded to one college or department (QA school handler, QA dept rep, dean,
-		// HOD). The bounded ones must see their own unit and no further — the same rule the
-		// student-attendance endpoint has always applied, and the reason this endpoint could not
-		// simply be opened to them: it had no scoping at all and returned the whole tenant.
+		// ORG SCOPE. This page is read by the institution-wide offices (DQA, QA monitor with no
+		// schools assigned, VC) AND by roles bounded to one college or department (QA monitor
+		// with assigned schools, QA dept rep, dean, HOD). The bounded ones must see their own
+		// units and no further — the same rule the student-attendance endpoint has always
+		// applied, and the reason this endpoint could not simply be opened to them: it had no
+		// scoping at all and returned the whole tenant.
 		//
 		// Resolved from the ACCOUNT, never from the request, so nobody can widen their own view by
 		// adding a query parameter.

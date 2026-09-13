@@ -129,7 +129,7 @@ func TestAudienceSpellings_areStillHandledByTheResolver(t *testing.T) {
 		"LECTURERS", "LECTURER",
 		// HOD / dean / QA reps
 		"DQA", "ADMIN", "HODS", "HOD",
-		// QA officer + DQA director, both spellings of the renamed role
+		// QA monitor + DQA director, both spellings of the renamed role
 		"MONITORS", "MONITOR", "PATROLLERS", "PATROLLER",
 	}
 	for _, a := range clientSends {

@@ -163,8 +163,8 @@ func SubmitPresenceClaims(pool *pgxpool.Pool) http.HandlerFunc {
 
 // ─── GET /api/v1/dashboard/qa/presence-claims ────────────────────────────────
 
-// ListPresenceClaims is what a QA officer or school handler opens when a lecturer says the
-// patroller never reached the room.
+// ListPresenceClaims is what a QA monitor opens when a lecturer says the
+// monitor never reached the room.
 //
 // Every claim carries the patrol tick for the SAME lecturer, unit and day beside it, because the
 // question is never "what did the lecturer say" on its own — it is whether the two records agree.

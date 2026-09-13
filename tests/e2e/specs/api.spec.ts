@@ -4,9 +4,9 @@ const API      = process.env.BASE_URL ?? 'https://localhost:8443'
 const TENANT_A = 'a1000000-0000-0000-0000-000000000001'  // Alpha University (db/seeds/001)
 
 // Helper: obtain a JWT for API tests.
-async function getToken(request: Parameters<typeof test.beforeEach>[0]['request'], role: 'QA_OFFICER' | 'COORDINATOR') {
+async function getToken(request: Parameters<typeof test.beforeEach>[0]['request'], role: 'QA_MONITOR' | 'COORDINATOR') {
   const emailMap = {
-    QA_OFFICER:  'qa.officer@alpha.edu',
+    QA_MONITOR:  'qa.officer@alpha.edu',
     COORDINATOR: 'coordinator@alpha.edu',
   }
   const res = await request.post(`${API}/api/v1/auth/login`, {
@@ -25,7 +25,7 @@ test.describe('API — Auth endpoints', () => {
     expect(res.status()).toBe(200)
     const body = await res.json()
     expect(body.access_token).toBeTruthy()
-    expect(body.role).toBe('QA_OFFICER')
+    expect(body.role).toBe('QA_MONITOR')
   })
 
   test('POST /auth/login returns 401 for wrong password', async ({ request }) => {
@@ -43,8 +43,8 @@ test.describe('API — Auth endpoints', () => {
     expect(res.status()).toBe(401)
   })
 
-  test('GET /manifest/daily returns 403 for QA Officer (wrong role)', async ({ request }) => {
-    const token = await getToken(request, 'QA_OFFICER')
+  test('GET /manifest/daily returns 403 for QA Monitor (wrong role)', async ({ request }) => {
+    const token = await getToken(request, 'QA_MONITOR')
     const res = await request.get(`${API}/api/v1/manifest/daily`, {
       headers: {
         Authorization: `Bearer ${token}`,

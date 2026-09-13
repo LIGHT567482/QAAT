@@ -111,12 +111,14 @@ func AdminOverview(pool *pgxpool.Pool) http.HandlerFunc {
 			"accounts_default_password": one(`
 				SELECT COUNT(*) FROM users WHERE tenant_id = $1 AND force_password_change = true`),
 			// An org-scoped role with no unit set matches nothing — the account sees an empty screen.
+			// A QA monitor with no schools is NOT counted: that is the legitimate institution-wide
+			// state migration 110 introduced, not a misconfiguration.
 			"org_roles_unscoped": one(`
 				SELECT COUNT(*) FROM users
 				WHERE tenant_id = $1
-				  AND role IN ('HOD','QA_DEPT_REP','QA_OFFICER')     AND COALESCE(department,'') = ''
+				  AND role IN ('HOD','QA_DEPT_REP')         AND COALESCE(department,'') = ''
 				   OR tenant_id = $1
-				  AND role IN ('DEAN','QA_SCHOOL_HANDLER')           AND COALESCE(school,'') = ''`),
+				  AND role IN ('DEAN')                       AND COALESCE(school,'') = ''`),
 			// A department nobody heads. It runs, it teaches, and no one is answerable for it —
 			// and it shows on the dean's Departments page as a red card they cannot fix themselves.
 			"departments_no_hod": one(`
@@ -144,10 +146,10 @@ func AdminOverview(pool *pgxpool.Pool) http.HandlerFunc {
 				  AND NOT EXISTS (
 				      SELECT 1 FROM departments d
 				      WHERE btrim(lower(d.name)) = btrim(lower(c.department)))`),
-			// Patrol handsets claimed, against patroller accounts that exist.
+			// Patrol handsets claimed, against monitor accounts that exist.
 			"patrollers_unbound": one(`
 				SELECT COUNT(*) FROM users u
-				WHERE u.tenant_id = $1 AND u.role = 'QA_PATROLLER'
+				WHERE u.tenant_id = $1 AND u.role = 'QA_MONITOR'
 				  AND NOT EXISTS (SELECT 1 FROM patroller_device_bindings b WHERE b.user_id = u.user_id)`),
 			// Sessions closed but never synced from a coordinator's phone.
 			"sessions_unsynced": one(`

@@ -43,7 +43,7 @@ func (e tlcScopeError) Error() string {
 
 // checkTimetableScope reports whether the caller may timetable unitID.
 //
-// Everyone except a departmental TLC passes: ADMIN and QA_OFFICER are institution-wide by role, and
+// Everyone except a departmental TLC passes: ADMIN and QA_MONITOR are institution-wide by role, and
 // a TLC without a department is institution-wide by configuration. It returns the refusal rather
 // than writing a response so the caller keeps its own error shape.
 func checkTimetableScope(ctx context.Context, q *pgxpool.Conn, tenantID, userID, role, unitID string) error {

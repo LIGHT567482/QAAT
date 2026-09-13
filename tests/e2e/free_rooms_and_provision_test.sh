@@ -109,8 +109,8 @@ INSERT INTO course_offerings (offering_id, tenant_id, course_id, session_type, s
 INSERT INTO users (tenant_id, email, password_hash, role, full_name, is_active, staff_id, force_password_change) VALUES
  ('$TEN','frt.coord@kiu.ac.ug',  crypt('CooPass12345', gen_salt('bf',10)),'COORDINATOR', 'FRT Coordinator', true,'FRT-CRD',false),
  ('$TEN','frt.coord2@kiu.ac.ug', crypt('CooPass12345', gen_salt('bf',10)),'COORDINATOR', 'FRT Coordinator Two', true,'FRT-CRD2',false),
- ('$TEN','frt.monitor@kiu.ac.ug',crypt('MonPass12345', gen_salt('bf',10)),'QA_PATROLLER','FRT Monitor',     true,'FRT-MON',false),
- ('$TEN','frt.qa@kiu.ac.ug',     crypt('QaPass12345',  gen_salt('bf',10)),'QA_OFFICER',  'FRT QA',          true,'FRT-QA',false),
+ ('$TEN','frt.monitor@kiu.ac.ug',crypt('MonPass12345', gen_salt('bf',10)),'QA_MONITOR','FRT Monitor',     true,'FRT-MON',false),
+ ('$TEN','frt.qa@kiu.ac.ug',     crypt('QaPass12345',  gen_salt('bf',10)),'QA_MONITOR',  'FRT QA',          true,'FRT-QA',false),
  ('$TEN','frt.lect@kiu.ac.ug',   crypt('LecPass12345', gen_salt('bf',10)),'LECTURER',    'FRT Lecturer',    true,'FRT-LEC',false);
 INSERT INTO lecturers (tenant_id, full_name, email, staff_id, user_id)
  SELECT '$TEN','FRT Lecturer','frt.lect@kiu.ac.ug','FRT-LEC', user_id FROM users WHERE email='frt.lect@kiu.ac.ug';
