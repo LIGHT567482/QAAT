@@ -16,12 +16,12 @@ VALUES
      '$2a$12$1xO1KXPJAnLHnTlUVG1qduJ4ZLsbN8F1DeHLR.dXOJhEwlmt33D52',
      'COORDINATOR', 'Alice Coordinator'),
 
-    -- QA_OFFICER
+    -- QA_MONITOR (the QA officer / patroller / school-handler roles merged into one)
     ('b1000000-0000-0000-0000-000000000002',
      'a1000000-0000-0000-0000-000000000001',
      'qa.officer@alpha.edu',
      '$2a$12$1xO1KXPJAnLHnTlUVG1qduJ4ZLsbN8F1DeHLR.dXOJhEwlmt33D52',
-     'QA_OFFICER', 'Bob QA Officer'),
+     'QA_MONITOR', 'Bob QA Monitor'),
 
     -- DQA_DIRECTOR
     ('b1000000-0000-0000-0000-000000000003',

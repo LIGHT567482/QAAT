@@ -86,13 +86,8 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 
 	// Native student app: bind this device to the student's reg number (one-device-one-student,
 	// global) at one-time onboarding. Public; reg + org → tenant, self-scoped on adminPool.
-	// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-	// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-	// lecturer attendance, employee attendance, the QA monitor round, timetable and
-	// reports. Everything that records, reads or serves STUDENT data waits for v2.
-	// Restore by uncommenting; the handler below still compiles and is still tested.
-	// r.With(middleware.PublicIPRateLimit(5, 20)).
-	// 	Post("/api/v1/student/register-device", handlers.RegisterDevice(adminPool))
+	r.With(middleware.PublicIPRateLimit(5, 20)).
+		Post("/api/v1/student/register-device", handlers.RegisterDevice(adminPool))
 
 	// Unified KIU QAAT app sign-in: identifier (email / reg-no / staff-id) + password + org →
 	// resolves to the account, reuses auth-service /auth/login, augments with student_id/staff_id.
@@ -346,12 +341,9 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 		r.With(hodAssign).Delete("/api/v1/hod/assignments/{assignment_id}", handlers.HODDeleteAssignment(pool))
 
 		r.With(orgDashRoles).Get("/api/v1/org/overview", handlers.OrgOverview(adminPool))
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(orgDashRoles).Get("/api/v1/org/at-risk", handlers.OrgAtRisk(adminPool))
+		// Students a whole institution stands to lose: below the attendance floor, or already
+		// withdrawn. Read by the oversight roles that answer for them.
+		r.With(orgDashRoles).Get("/api/v1/org/at-risk", handlers.OrgAtRisk(adminPool))
 		// The shaped version of the same overview: a weekly trend, a per-department (or per-unit)
 		// comparison, and the term's part-to-whole. Same reader set and the same account-resolved
 		// scope, so the charts on a dean's page cover exactly the college their scalars do.
@@ -406,35 +398,21 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 		// ── Online check-in session lifecycle (handled in-gateway) ────────────
 		r.With(middleware.RequireRole(middleware.RoleCoordinator)).
 			Post("/api/v1/sessions/open", handlers.OpenSession(pool))
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleCoordinator)).
-		// 	Get("/api/v1/sessions/{session_id}/checkin-code", handlers.CheckinCode(pool))
+		// The live room code a coordinator reads out so students can check in by phone.
+		r.With(middleware.RequireRole(middleware.RoleCoordinator)).
+			Get("/api/v1/sessions/{session_id}/checkin-code", handlers.CheckinCode(pool))
 
 		// ── Student authenticated check-in ────────────────────────────────────
 		// Identity = JWT (email → student_id lookup). Proximity = room code.
 		// No QR needed: the student's authenticated account IS the identity proof.
-		// ── STUDENT ATTENDANCE TAKING: SUSPENDED ──────────────────────────────
-		// Commented out on request, not deleted. Nothing about the QA monitor round or the
-		// lecturer's own attendance passes through here, and both are deliberately untouched.
-		// Restore by uncommenting the route below; the handler is still compiled and tested.
-		// QR / room-code check-in
-		// r.With(middleware.RequireRole(middleware.RoleStudent)).
-		// Post("/api/v1/student/checkin", handlers.StudentCheckin(pool))
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// // Live/active sessions the student may attend right now (#4a).
-		// r.With(middleware.RequireRole(middleware.RoleStudent)).
-		// 	Get("/api/v1/student/live-sessions", handlers.StudentLiveSessions(pool))
-		// // The student app's Home tab: profile, their cohort's units and its weekly timetable.
-		// r.With(middleware.RequireRole(middleware.RoleStudent)).
-		// 	Get("/api/v1/student/home", handlers.StudentHome(adminPool))
+		r.With(middleware.RequireRole(middleware.RoleStudent)).
+			Post("/api/v1/student/checkin", handlers.StudentCheckin(pool))
+		// Live/active sessions the student may attend right now (#4a).
+		r.With(middleware.RequireRole(middleware.RoleStudent)).
+			Get("/api/v1/student/live-sessions", handlers.StudentLiveSessions(pool))
+		// The student app's Home tab: profile, their cohort's units and its weekly timetable.
+		r.With(middleware.RequireRole(middleware.RoleStudent)).
+			Get("/api/v1/student/home", handlers.StudentHome(adminPool))
 		// ── Synchronisation (→ sync-receiver) ─────────────────────────────────
 		r.With(middleware.RequireRole(middleware.RoleCoordinator)).
 			Post("/api/v1/sync/init", syncProxy)
@@ -446,21 +424,12 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 			Post("/api/v1/sync/complete/{upload_id}", syncProxy)
 
 		// ── Eligibility ───────────────────────────────────────────────────────
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleQAOfficer, middleware.RoleDQADirector, middleware.RoleVC, middleware.RoleDVC, middleware.RoleStudent)).
-		// 	Get("/api/v1/eligibility/{student_id}", handlers.GetEligibility(pool))
-
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleDQADirector)).
-		// 	Post("/api/v1/eligibility/clearance-token", sessionProxy)
+		// One student's attendance/eligibility rollup, judged against the institution's floors.
+		r.With(middleware.RequireRole(middleware.RoleQAMonitor, middleware.RoleDQADirector, middleware.RoleVC, middleware.RoleDVC, middleware.RoleStudent)).
+			Get("/api/v1/eligibility/{student_id}", handlers.GetEligibility(pool))
+		// Mint a clearance token after a student's eligibility is confirmed.
+		r.With(middleware.RequireRole(middleware.RoleDQADirector)).
+			Post("/api/v1/eligibility/clearance-token", sessionProxy)
 
 		// How much of the published timetable the QA round actually reached — the denominator
 		// every patrol-derived report was missing. Read by the oversight roles that answer for the
@@ -476,19 +445,10 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 		r.With(coverageReaders).Get("/api/v1/dashboard/dqa/patrol-coverage", handlers.PatrolCoverage(pool))
 		for _, f := range []string{"xlsx", "csv", "pdf"} {
 			r.With(coverageReaders).Get("/api/v1/dashboard/dqa/patrol-coverage/export."+f, handlers.PatrolCoverageExport(pool, f))
-			// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-			// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-			// lecturer attendance, employee attendance, the QA monitor round, timetable and
-			// reports. Everything that records, reads or serves STUDENT data waits for v2.
-			// Restore by uncommenting; the handler below still compiles and is still tested.
-			// r.With(coverageReaders).Get("/api/v1/dashboard/dqa/unit-attendance/export."+f, handlers.UnitAttendanceExport(pool, f))
+			r.With(coverageReaders).Get("/api/v1/dashboard/dqa/unit-attendance/export."+f, handlers.UnitAttendanceExport(pool, f))
 		}
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(coverageReaders).Get("/api/v1/dashboard/dqa/unit-attendance", handlers.UnitAttendanceReport(pool))
+		// Attendance broken out per unit (and per cohort) across the whole institution.
+		r.With(coverageReaders).Get("/api/v1/dashboard/dqa/unit-attendance", handlers.UnitAttendanceReport(pool))
 
 		// ── DQA ⇄ QA-officer messaging (in-app inbox) ────────────────────────
 		// The DQA director shares reports/notifications to QA officers (all / by
@@ -650,21 +610,19 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 			r.With(adminOwn...).Post(base+"/import", handlers.ImportRooms(adminPool))
 			r.With(adminOwn...).Get(base+"/export.xlsx", handlers.ExportRoomsXLSX(adminPool))
 		}
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleAdmin)).
-		// 	Get("/api/v1/admin/students", handlers.ListStudents(adminPool))
-		// r.With(middleware.RequireRole(middleware.RoleAdmin)).
-		// 	Post("/api/v1/admin/students", handlers.CreateStudent(adminPool))
-		// r.With(middleware.RequireRole(middleware.RoleAdmin)).
-		// 	Patch("/api/v1/admin/students", handlers.UpdateStudent(adminPool))
-		// r.With(middleware.RequireRole(middleware.RoleAdmin)).
-		// 	Delete("/api/v1/admin/students", handlers.DeleteStudent(adminPool))
-		// r.With(middleware.RequireRole(middleware.RoleAdmin)).
-		// 	Get("/api/v1/admin/students/export.xlsx", handlers.ExportStudentsXLSX(adminPool))
+		// Student directory (admin) + Excel export. The student's identity in the
+		// system is their registration number; these rows back the student check-in and
+		// the eligibility pages.
+		r.With(middleware.RequireRole(middleware.RoleAdmin)).
+			Get("/api/v1/admin/students", handlers.ListStudents(adminPool))
+		r.With(middleware.RequireRole(middleware.RoleAdmin)).
+			Post("/api/v1/admin/students", handlers.CreateStudent(adminPool))
+		r.With(middleware.RequireRole(middleware.RoleAdmin)).
+			Patch("/api/v1/admin/students", handlers.UpdateStudent(adminPool))
+		r.With(middleware.RequireRole(middleware.RoleAdmin)).
+			Delete("/api/v1/admin/students", handlers.DeleteStudent(adminPool))
+		r.With(middleware.RequireRole(middleware.RoleAdmin)).
+			Get("/api/v1/admin/students/export.xlsx", handlers.ExportStudentsXLSX(adminPool))
 
 		// Coordinators directory (contacts + course/level/session) + Excel import/export.
 		r.With(middleware.RequireRole(middleware.RoleAdmin)).
@@ -844,13 +802,9 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 		// Lecturer dashboard (their assigned units + student attendance matrix).
 		r.With(middleware.RequireRole(middleware.RoleLecturer)).
 			Get("/api/v1/lecturer/overview", handlers.LecturerOverview(adminPool))
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleLecturer)).
-		// 	Get("/api/v1/lecturer/attendance", handlers.LecturerAttendance(adminPool))
+		// The lecturer's own attendance across their published timetable.
+		r.With(middleware.RequireRole(middleware.RoleLecturer)).
+			Get("/api/v1/lecturer/attendance", handlers.LecturerAttendance(adminPool))
 		// Unit-centric teaching calendar: timetabled sessions per course unit, with the cohorts
 		// attending each as sub-tags and their attendance broken out per cohort.
 		r.With(middleware.RequireRole(middleware.RoleLecturer)).
@@ -993,13 +947,9 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 		// ── Exports ──────────────────────────────────────────────────────────
 		r.With(middleware.RequireRole(middleware.RoleVC, middleware.RoleDVC)).
 			Get("/api/v1/reports/vc/audit.pdf", handlers.VCAuditPDF(pool))
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleDQADirector)).
-		// 	Get("/api/v1/reports/dqa/eligibility.csv", handlers.DQAEligibilityCSV(pool))
+		// The DQA's whole-tenant eligibility sweep, as a CSV download.
+		r.With(middleware.RequireRole(middleware.RoleDQADirector)).
+			Get("/api/v1/reports/dqa/eligibility.csv", handlers.DQAEligibilityCSV(pool))
 
 		// ── SIS Import ───────────────────────────────────────────────────────
 		r.With(middleware.RequireRole(middleware.RoleAdmin, middleware.RoleDQADirector)).
@@ -1020,13 +970,9 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 			Get("/api/v1/dashboard/dqa/thresholds", handlers.GetThresholds(pool))
 		r.With(middleware.RequireRole(middleware.RoleDQADirector)).
 			Put("/api/v1/dashboard/dqa/thresholds", handlers.PutThresholds(pool, rdb))
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleDQADirector)).
-		// 	Get("/api/v1/dashboard/dqa/course-health", handlers.DQACourseHealth(pool))
+		// Per-unit health for every unit the institution teaches.
+		r.With(middleware.RequireRole(middleware.RoleDQADirector)).
+			Get("/api/v1/dashboard/dqa/course-health", handlers.DQACourseHealth(pool))
 		// Week-by-week attendance trend for the DQA home (DQATrends). Re-enabled with the
 		// student phone check-in (docs/U-PANEL-MIGRATION.md decision A reversal): the home
 		// page already embeds DQATrends, so the route must be answerable.
@@ -1034,20 +980,12 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 			Get("/api/v1/dashboard/dqa/trends", handlers.DQATrends(pool))
 		r.With(middleware.RequireRole(middleware.RoleDQADirector)).
 			Get("/api/v1/dashboard/dqa/punctuality", handlers.DQAPunctuality(pool))
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleDQADirector)).
-		// 	Get("/api/v1/dashboard/dqa/ineligible", handlers.DQABulkIneligible(pool))
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleDQADirector)).
-		// 	Get("/api/v1/dashboard/dqa/eligibility-all", handlers.DQAAllEligibility(pool))
+		// Every student currently below the attendance floor.
+		r.With(middleware.RequireRole(middleware.RoleDQADirector)).
+			Get("/api/v1/dashboard/dqa/ineligible", handlers.DQABulkIneligible(pool))
+		// The DQA's whole-tenant eligibility table (drives the export).
+		r.With(middleware.RequireRole(middleware.RoleDQADirector)).
+			Get("/api/v1/dashboard/dqa/eligibility-all", handlers.DQAAllEligibility(pool))
 
 		// Timetable (ADMIN + QA OFFICER): view the coordinator-filled weekly schedule
 		// of every offering's units, with override power on the PUT.
@@ -1102,20 +1040,13 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 		r.With(middleware.RequireRole(middleware.RoleTLC, middleware.RoleAdmin, middleware.RoleQAMonitor)).
 			Delete("/api/v1/dashboard/timetable/slots/{slot_id}", handlers.DeleteTimetableSlot(pool, rdb))
 
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(middleware.RequireRole(middleware.RoleQAOfficer)).
-		// 	Post("/api/v1/dashboard/qa/device-reset", handlers.QADeviceReset(pool))
-		// ── STUDENT ATTENDANCE TAKING: SUSPENDED ──────────────────────────────
-		// Commented out on request, not deleted. Nothing about the QA monitor round or the
-		// lecturer's own attendance passes through here, and both are deliberately untouched.
-		// Restore by uncommenting the route below; the handler is still compiled and tested.
-		// QA manual correction — a QA screen, but what it writes is STUDENT attendance
-		// r.With(middleware.RequireRole(middleware.RoleQAOfficer)).
-		// Post("/api/v1/dashboard/qa/attendance-correction", handlers.QAManualCorrection(pool))
+		// Un-bind a hardware fingerprint so a student's device can be re-paired.
+		r.With(middleware.RequireRole(middleware.RoleQAMonitor)).
+			Post("/api/v1/dashboard/qa/device-reset", handlers.QADeviceReset(pool))
+		// QA manual correction — a QA screen, but what it writes is STUDENT attendance.
+		// Append-only ledger: the correction lands as a MANUAL_OVERRIDE row, never an edit.
+		r.With(middleware.RequireRole(middleware.RoleQAMonitor)).
+			Post("/api/v1/dashboard/qa/attendance-correction", handlers.QAManualCorrection(pool))
 		r.With(middleware.RequireRole(middleware.RoleQAMonitor)).
 			Get("/api/v1/dashboard/qa/coordinator-health", handlers.QACoordinatorHealth(pool))
 
@@ -1165,33 +1096,17 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 			middleware.RoleDQADirector, middleware.RoleHOD, middleware.RoleDean,
 			middleware.RoleQADeptRep, middleware.RoleCoordinator,
 		)
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(attendanceReaders).Get("/api/v1/dashboard/qa/student-attendance", handlers.QAStudentAttendance(pool))
-		// ── U-PANEL INTEGRATION: DEFERRED TO V2 ───────────────────────────────
-		// Commented out, not deleted. v1 is self-contained: QAAT makes no outbound call
-		// to U-Panel and serves no U-Panel-sourced row. Restore by uncommenting; the
-		// upanel package still compiles and its tests still pass.
-		// // U-Panel student / lecturer / admin attendance: fetched, stored in QAAT, returned from this app.
-		// r.With(attendanceReaders).Get("/api/v1/dashboard/upanel/attendance", handlers.UPanelAttendance(pool, adminPool))
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// r.With(attendanceReaders).Get("/api/v1/dashboard/qa/student-attendance/export.xlsx", handlers.QAStudentAttendanceReport(pool, "xlsx"))
-		// r.With(attendanceReaders).Get("/api/v1/dashboard/qa/student-attendance/export.csv", handlers.QAStudentAttendanceReport(pool, "csv"))
-		// r.With(attendanceReaders).Get("/api/v1/dashboard/qa/student-attendance/export.pdf", handlers.QAStudentAttendanceReport(pool, "pdf"))
-		// ── STUDENT ATTENDANCE TAKING: SUSPENDED ──────────────────────────────
-		// Commented out on request, not deleted. Nothing about the QA monitor round or the
-		// lecturer's own attendance passes through here, and both are deliberately untouched.
-		// Restore by uncommenting the route below; the handler is still compiled and tested.
-		// bulk import of student attendance
-		// r.With(middleware.RequireRole(middleware.RoleAdmin, middleware.RoleQAOfficer)).
-		// Post("/api/v1/dashboard/qa/student-attendance/import", handlers.QAStudentAttendanceImport(pool))
+		// Student attendance anywhere in the institution, bounded by the caller's own scope.
+		r.With(attendanceReaders).Get("/api/v1/dashboard/qa/student-attendance", handlers.QAStudentAttendance(pool))
+		// U-Panel attendance: fetched from U-Panel, stored in QAAT, returned from this app.
+		r.With(attendanceReaders).Get("/api/v1/dashboard/upanel/attendance", handlers.UPanelAttendance(pool, adminPool))
+		// Same table, same filters, taken away as a spreadsheet or PDF.
+		r.With(attendanceReaders).Get("/api/v1/dashboard/qa/student-attendance/export.xlsx", handlers.QAStudentAttendanceReport(pool, "xlsx"))
+		r.With(attendanceReaders).Get("/api/v1/dashboard/qa/student-attendance/export.csv", handlers.QAStudentAttendanceReport(pool, "csv"))
+		r.With(attendanceReaders).Get("/api/v1/dashboard/qa/student-attendance/export.pdf", handlers.QAStudentAttendanceReport(pool, "pdf"))
+		// Bulk import of student attendance (admin / QA monitor).
+		r.With(middleware.RequireRole(middleware.RoleAdmin, middleware.RoleQAMonitor)).
+			Post("/api/v1/dashboard/qa/student-attendance/import", handlers.QAStudentAttendanceImport(pool))
 
 		// Lecturer attendance for the oversight dashboards.
 		//
@@ -1216,14 +1131,9 @@ func New(publicKey *rsa.PublicKey, jwtIssuer, jwtAudience string, rdb *redis.Cli
 		r.With(attendanceReaders).Get("/api/v1/dashboard/lecturer-attendance/patrol/export.csv", handlers.LecturerPatrolExport(pool, "csv"))
 		r.With(attendanceReaders).Get("/api/v1/dashboard/lecturer-attendance/patrol/export.pdf", handlers.LecturerPatrolExport(pool, "pdf"))
 
-		// ── STUDENT MODULE: DEFERRED TO V2 ────────────────────────────────────
-		// Commented out, not deleted. v1 ships as an internal Quality Assurance system:
-		// lecturer attendance, employee attendance, the QA monitor round, timetable and
-		// reports. Everything that records, reads or serves STUDENT data waits for v2.
-		// Restore by uncommenting; the handler below still compiles and is still tested.
-		// // ── Session roster (coordinator: who is present in a live session) ────
-		// r.With(middleware.RequireRole(middleware.RoleCoordinator)).
-		// 	Get("/api/v1/sessions/{session_id}/roster", handlers.SessionRoster(pool))
+		// ── Session roster (coordinator: who is present in a live session) ────
+		r.With(middleware.RequireRole(middleware.RoleCoordinator)).
+			Get("/api/v1/sessions/{session_id}/roster", handlers.SessionRoster(pool))
 	})
 
 	return r
