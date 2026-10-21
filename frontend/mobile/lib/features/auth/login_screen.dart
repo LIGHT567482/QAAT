@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/auth/auth_repository.dart';
+import '../../../core/brand/brand.g.dart';
+import '../../../core/brand/brand_background.dart';
 
 /// Sign-in for students and lecturers (spec doc 05 §2 — identifier order:
 /// email, registration number, or staff number; fixed 401 on failure).
@@ -66,23 +68,44 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text('QAAT',
+      // The background, crest and every colour below come from brand.json.
+      body: BrandBackground(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Center(child: BrandCrest(size: 72)),
+                  const SizedBox(height: 12),
+                  Text(QaatBrand.appName,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                            color: QaatBrand.brandColor,
+                            fontWeight: FontWeight.w700,
+                          )),
+                  if (QaatBrand.slogan.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      QaatBrand.slogan,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                  const SizedBox(height: 4),
+                  Text(
+                    QaatBrand.institution,
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.headlineMedium),
-                const SizedBox(height: 4),
-                Text(
-                  _registerMode ? 'Create your student account' : 'Student & lecturer sign-in',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
+                    _registerMode ? 'Create your student account' : 'Student & lecturer sign-in',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
                 const SizedBox(height: 24),
                 TextField(
                   controller: _login,
@@ -148,6 +171,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 }

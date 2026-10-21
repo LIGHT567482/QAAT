@@ -2,7 +2,9 @@
 // Attendance endpoints return 501 "attendance logic pending merge" until the
 // engine merges in (spec doc 06) — every fetch surfaces that as a pending state.
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+/** Origin of the Go backend. Exported so links (e.g. the health shortcut)
+ * point at it rather than at the Next.js origin. */
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 export type Role = "student" | "lecturer" | "qa_staff" | "administrator" | "kiu_admin";
 

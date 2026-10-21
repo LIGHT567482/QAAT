@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/auth/auth_repository.dart';
+import '../../../core/brand/brand.g.dart';
+import '../../../core/brand/brand_background.dart';
 import 'attendance_view.dart';
 
 /// Student surface. Per spec doc 07 §"students have no dashboard" — the nav
@@ -30,7 +32,7 @@ class _StudentHomeState extends State<StudentHome> {
     ];
     return Scaffold(
       appBar: AppBar(
-        title: Text('QAAT — ${widget.user.role}'),
+        title: Text('${QaatBrand.appName} — ${widget.user.role}'),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
@@ -39,7 +41,13 @@ class _StudentHomeState extends State<StudentHome> {
           ),
         ],
       ),
-      body: pages[_tab],
+      // Header, nav bar, footer and page background all come from brand.json.
+      body: Column(
+        children: [
+          Expanded(child: pages[_tab]),
+          const BrandFooter(),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
@@ -78,7 +86,7 @@ class _ProfileView extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       children: [
         ListTile(
-          leading: const CircleAvatar(child: Icon(Icons.person)),
+          leading: const CircleAvatar(backgroundImage: QaatBrand.crestImage),
           title: Text(user.fullName.isNotEmpty ? user.fullName : user.email),
           subtitle: Text(user.email),
         ),

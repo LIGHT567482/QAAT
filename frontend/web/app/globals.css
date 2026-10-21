@@ -1,13 +1,23 @@
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* Branding comes from brand.json via lib/brand.ts — the custom properties
+   below are injected into :root by app/layout.tsx. The values here are only
+   fallbacks for the pre-hydration paint. Never hardcode a brand colour in a
+   component: use var(--brand-*) or read `brand` from lib/brand.ts. */
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  --brand-primary: #1a7a3f;
+  --brand-header: #1a7a3f;
+  --brand-sidebar: #1a7a3f;
+  --brand-footer: #1a7a3f;
+  --brand-bg: #f0fdf4;
+  --brand-text-light: #0f172a;
+  --brand-text-dark: #e5e7eb;
+  --brand-surface: #ffffff;
+  --brand-bg-image: none;
+  --brand-bg-blur: 0px;
+  --brand-bg-brightness: 100%;
+  --brand-bg-contrast: 100%;
+  --brand-bg-overlay: transparent;
+  --brand-bg-overlay-opacity: 0;
 }
 
 html,
@@ -17,11 +27,40 @@ body {
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--brand-text-light);
+  background: var(--brand-bg);
+  font-family: var(--font-geist-sans, system-ui), -apple-system, "Segoe UI",
+    Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* The brand background image, carrying brand.json's blur / brightness /
+   contrast / overlay treatment. Rendered once by app/layout.tsx. */
+#brand-background {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+#brand-background .layer {
+  position: absolute;
+  inset: -24px; /* bleed so the blur has no soft edge */
+  background-image: var(--brand-bg-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  filter: blur(var(--brand-bg-blur)) brightness(var(--brand-bg-brightness))
+    contrast(var(--brand-bg-contrast));
+}
+
+#brand-background .overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--brand-bg-overlay);
+  opacity: var(--brand-bg-overlay-opacity);
 }
 
 * {
@@ -35,8 +74,11 @@ a {
   text-decoration: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+input {
+  font: inherit;
 }

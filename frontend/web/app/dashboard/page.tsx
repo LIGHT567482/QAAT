@@ -9,12 +9,22 @@ import {
   Me,
   ApiError,
 } from "@/lib/api";
+import { brand } from "@/lib/brand";
+import { BrandShell } from "@/components/brand/BrandShell";
 
 type ViewState =
   | { kind: "loading" }
   | { kind: "auth" } // redirect to login
   | { kind: "me"; user: Me }
   | { kind: "error"; message: string };
+
+/** Panel surface + border, shared by every card on the page. */
+const panel: React.CSSProperties = {
+  background: "var(--brand-surface)",
+  border: "1px solid color-mix(in srgb, var(--brand-text-light) 12%, transparent)",
+  borderRadius: 8,
+  padding: 16,
+};
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -70,45 +80,58 @@ export default function DashboardPage() {
   }, [view, router]);
 
   if (view.kind === "loading" || view.kind === "auth") {
-    return <Main>Loading…</Main>;
+    return (
+      <BrandShell title={`${brand.app_name} dashboard`}>
+        <p>Loading…</p>
+      </BrandShell>
+    );
   }
   if (view.kind === "error") {
-    return <Main>{view.message}</Main>;
+    return (
+      <BrandShell title={`${brand.app_name} dashboard`}>
+        <section style={panel}>{view.message}</section>
+      </BrandShell>
+    );
   }
 
   const { user } = view;
   return (
-    <Main>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <h1 style={{ fontSize: 22, margin: 0 }}>QAAT dashboard</h1>
+    <BrandShell title={`${brand.app_name} dashboard`}>
+      <header
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <p style={{ margin: 0 }}>
+          {user.fullName || user.email} · <strong>{user.role}</strong>
+        </p>
         <button
           onClick={() => {
             clearToken();
             router.replace("/login");
           }}
-          style={{ border: "1px solid #ccc", background: "#fff", padding: "6px 10px" }}
+          style={{
+            border: "1px solid color-mix(in srgb, var(--brand-text-light) 20%, transparent)",
+            background: "var(--brand-surface)",
+            color: "var(--brand-text-light)",
+            padding: "6px 10px",
+            borderRadius: 6,
+          }}
         >
           Sign out
         </button>
       </header>
 
-      <p style={{ color: "#555" }}>
-        {user.fullName || user.email} · <strong>{user.role}</strong>
-      </p>
-
-      <section
-        style={{
-          border: "1px solid #e2e2e2",
-          borderRadius: 8,
-          padding: 16,
-          marginTop: 16,
-        }}
-      >
+      <section style={{ ...panel, marginTop: 16 }}>
         <h2 style={{ fontSize: 16, marginTop: 0 }}>Attendance</h2>
         <p style={{ margin: 0, color: "#8a6d00" }}>
           {dashNote ?? "Attendance engine pending merge — lists, sessions, and rolls will appear here."}
         </p>
-        <p style={{ margin: "8px 0 0", fontSize: 13, color: "#777" }}>
+        <p style={{ margin: "8px 0 0", fontSize: 13, opacity: 0.7 }}>
           Spec: docs/qaat-spec/06-attendance-module.md
         </p>
       </section>
@@ -117,7 +140,8 @@ export default function DashboardPage() {
         <h2 style={{ fontSize: 16 }}>Overview</h2>
         <pre
           style={{
-            background: "#f6f6f6",
+            background: "var(--brand-surface)",
+            border: "1px solid color-mix(in srgb, var(--brand-text-light) 12%, transparent)",
             padding: 12,
             borderRadius: 6,
             overflowX: "auto",
@@ -127,14 +151,6 @@ export default function DashboardPage() {
           {dash ? JSON.stringify(dash, null, 2) : "No summary available yet."}
         </pre>
       </section>
-    </Main>
-  );
-}
-
-function Main({ children }: { children: React.ReactNode }) {
-  return (
-    <main style={{ maxWidth: 760, margin: "6vh auto", padding: "0 16px", fontFamily: "system-ui" }}>
-      {children}
-    </main>
+    </BrandShell>
   );
 }

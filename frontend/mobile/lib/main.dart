@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'core/api/api_client.dart';
 import 'core/auth/auth_repository.dart';
+import 'core/brand/brand.g.dart';
 import 'features/auth/login_screen.dart';
 import 'features/lecturer/lecturer_home.dart';
 import 'features/student/student_home.dart';
@@ -50,11 +51,37 @@ class _QaatAppState extends State<QaatApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'QAAT',
+      title: QaatBrand.appName,
       debugShowCheckedModeBanner: false,
+      // Every colour here comes from brand.json — see core/brand/brand.g.dart.
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1A56DB)),
         useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: QaatBrand.brandColor,
+          primary: QaatBrand.brandColor,
+          surface: QaatBrand.backgroundColor,
+        ),
+        scaffoldBackgroundColor: QaatBrand.backgroundColor,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: QaatBrand.headerColor,
+          foregroundColor: QaatBrand.textColorDark,
+          elevation: 0,
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: QaatBrand.sidebarColor,
+          indicatorColor: QaatBrand.brandColor.withAlpha(64),
+          elevation: 0,
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: QaatBrand.brandColor,
+            foregroundColor: QaatBrand.textColorDark,
+          ),
+        ),
+        cardTheme: const CardThemeData(
+          elevation: 0,
+          color: Color(0xFFFFFFFF),
+        ),
       ),
       home: Builder(
         builder: (context) {
