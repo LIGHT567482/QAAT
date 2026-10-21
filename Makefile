@@ -1,8 +1,8 @@
-.PHONY: up down build test lint migrate dev dev-backend dev-web dev-mobile help tidy
+.PHONY: up down build test lint migrate dev dev-backend dev-web dev-mobile brand brand-check help tidy
 
 COMPOSE?=docker compose -f infra/docker-compose.yml --env-file .env
 export PATH:=$(HOME)/.local/bin:$(PATH)
-FLUTTER?=.tooling/flutter/bin/flutter
+FLUTTER?=$(CURDIR)/.tooling/flutter/bin/flutter
 
 ## up: Start Postgres + backend + web (dev stack)
 up:
@@ -50,22 +50,30 @@ dev-mobile:
 dev:
 	@$(MAKE) -s dev-backend & $(MAKE) -s dev-web; trap 'kill 0' EXIT INT TERM
 
+## brand: Regenerate every frontend's branding from brand.json
+brand:
+	node scripts/brand-sync.mjs
+
+## brand-check: Fail if any surface's branding drifted from brand.json
+brand-check:
+	node scripts/brand-sync.mjs --check
+
 ## tidy: go mod tidy
 tidy:
 	cd backend && go mod tidy
 
-## test: Backend Go tests + web typecheck/build + flutter tests
-test:
+## test: brand drift check + Go tests + web build + flutter tests
+test: brand-check
 	cd backend && go test ./...
 	cd frontend/web && pnpm build
-	-$(FLUTTER) analyze
-	-$(FLUTTER) test
+	cd frontend/mobile && $(FLUTTER) analyze
+	cd frontend/mobile && $(FLUTTER) test
 
 ## lint: go vet + eslint + flutter analyze
-lint:
+lint: brand-check
 	cd backend && go vet ./...
 	cd frontend/web && pnpm lint
-	-$(FLUTTER) analyze
+	cd frontend/mobile && $(FLUTTER) analyze
 
 ## help: Show this help
 help:

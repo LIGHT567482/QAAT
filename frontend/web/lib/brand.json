@@ -1,0 +1,23 @@
+{
+  "app_name": "QAAT",
+  "name": "Kampala International University",
+  "motto": "Exploring the Heights",
+  "slogan": "Exploring the Heights",
+  "address": "",
+  "logo_asset": "/brand/crest.png",
+  "crest_asset": "/brand/crest.png",
+  "badge_asset": "/brand/crest.png",
+  "brand_color": "#1a7a3f",
+  "header_color": "#1a7a3f",
+  "sidebar_color": "#1a7a3f",
+  "footer_color": "#1a7a3f",
+  "background_color": "#f0fdf4",
+  "background_image": "",
+  "background_blur": 0,
+  "background_brightness": 100,
+  "background_contrast": 100,
+  "background_overlay_color": "",
+  "background_overlay_opacity": 0,
+  "text_color_light": "#0f172a",
+  "text_color_dark": "#e5e7eb"
+}

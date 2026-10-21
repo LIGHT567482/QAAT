@@ -55,6 +55,8 @@ frontend/
   web/                  Next.js — administrator / QA / KIU-admin dashboards
 db/migrations/          Fresh-schema migrations (typed tables per spec doc 03)
 infra/                  docker-compose, Dockerfiles
+brand.json              ⭐ single source of branding truth — §4
+scripts/brand-sync.mjs  derives every frontend's branding from brand.json
 ```
 
 The previous (pre-spec) implementation — `backend/auth-service`, `api-gateway`,
@@ -98,3 +100,53 @@ implement attendance logic ad hoc; do not remove the stubs or their routes.
 
 Full logic — codes, lifecycle, adjudication, sweeps, 28 edge cases — is in
 [06 — Attendance Module](qaat-spec/06-attendance-module.md).
+
+---
+
+## 4. Branding = one file
+
+**[`brand.json`](../brand.json) at the repo root is the single source of
+branding truth.** Crest, badge, logo, header/sidebar/footer/background colours,
+text colours, background image (with its blur / brightness / contrast /
+overlay), and every brand string are read from it. No screen hardcodes any of
+them — rebranding is a one-file edit.
+
+```text
+brand.json  ──make brand──►  frontend/web/lib/brand.json          imported by the app
+                     ├────►  frontend/web/public/brand/*.png      favicon + <img>
+                     ├────►  frontend/mobile/assets/brand/*.png   Flutter image assets
+                     └────►  frontend/mobile/lib/core/brand/brand.g.dart   typed Dart consts
+```
+
+| Field | Drives |
+|---|---|
+| `app_name` | Window/app titles, headers, the `QAAT` string everywhere |
+| `name`, `motto`, `slogan`, `address` | Subtitles, sidebar, footer |
+| `logo_url` / `crest_url` / `badge_url` | Crest + badge (data URI, URL, or `/path`; empty `crest`/`badge` fall back to `logo`, then to each other) |
+| `brand_color` | Primary: buttons, accents, links, focus |
+| `header_color` | Web app bar; Flutter `AppBar` |
+| `sidebar_color` | Web sidebar; Flutter `NavigationBar` (its mobile equivalent) |
+| `footer_color` | Web footer; Flutter `BrandFooter` |
+| `background_color` | Page background on both surfaces |
+| `background_image` + `_blur` / `_brightness` / `_contrast` / `_overlay_color` / `_overlay_opacity` | The layered background (`#brand-background` in CSS; `BrandBackground` in Flutter) |
+| `text_color_light` / `text_color_dark` | Body text / text on brand-coloured chrome |
+
+**Consumers.** Web reads `lib/brand.ts` — it also emits the values as CSS
+custom properties (`--brand-header`, `--brand-sidebar`, …) into `:root` from
+`app/layout.tsx`, and the chrome lives in `components/brand/BrandShell.tsx`.
+Flutter reads the generated `QaatBrand` (colours, strings, `crestImage`) plus
+`BrandBackground` / `BrandFooter` / `BrandCrest` in `lib/core/brand/`.
+
+**Guarding it.** `make brand` regenerates; `make brand-check` (run by both
+`make test` and `make lint`) fails on drift. On mobile,
+`test/brand_test.dart` additionally asserts the constants and the bundled crest
+bytes still match `brand.json`, and that no screen contains a hex colour
+literal. The backend holds no branding today — it gains some when email
+templates land, and those must read the same file.
+
+**Known gap.** The Android/iOS launcher icons are still the Flutter defaults.
+`flutter_launcher_icons` takes its config from `pubspec.yaml` only (no
+external config file), so wiring it up means the sync script having to rewrite
+pubspec — and its `adaptive_icon_background` wants a literal colour, which
+would break the single-source rule. Do it by generating the pubspec block from
+`brand.json`, not by hand.
