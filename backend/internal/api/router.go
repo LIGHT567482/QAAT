@@ -43,9 +43,12 @@ func NewRouter(h *Handlers) *gin.Engine {
 	ag.PATCH("/me", auth.Middleware(h.Cfg.JWTSecret), h.updateMe)
 
 	// Per-role API groups. Attendance sub-routes are the merge slot.
+	//
+	// No /dashboard for students: spec doc 07 gives students the Attendance ·
+	// Notices · Profile surface, not a dashboard — the group below is
+	// attendance-only until the notices API lands.
 	student := r.Group("/api/student", auth.Middleware(h.Cfg.JWTSecret),
 		auth.RequireRole(auth.RoleStudent))
-	student.GET("/dashboard", h.studentDashboard)
 	registerAttendanceRoutes(student, auth.RoleStudent)
 
 	lecturer := r.Group("/api/lecturer", auth.Middleware(h.Cfg.JWTSecret),

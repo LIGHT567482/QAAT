@@ -147,45 +147,20 @@ class ApiClient {
     return User.fromJson(j);
   }
 
-  Future<void> logout() async {
-    _token = null;
-  }
-
   // --- dashboards ---
-
-  Future<Map<String, dynamic>> studentDashboard() =>
-      _request('/api/student/dashboard');
+  //
+  // No student dashboard: per spec doc 07 students navigate Attendance ·
+  // Notices · Profile, so /api/student/dashboard is never called from here.
 
   Future<Map<String, dynamic>> lecturerDashboard() =>
       _request('/api/lecturer/dashboard');
 
   // --- attendance surface (501 until merge) ---
 
+  /// Backs [AttendanceView]. While the engine is the merge slot the backend
+  /// answers 501 and the screen renders the pending state instead of an error.
   Future<List<dynamic>> lists(String group) async {
     final dynamic j = await _requestRaw('/api/$group/lists');
     return j is List ? j : const [];
-  }
-
-  Future<void> checkIn({
-    required String sessionId,
-    required String sessionCodeRaw,
-    required String listId,
-    String? deviceId,
-    double? latitude,
-    double? longitude,
-  }) async {
-    await _request(
-      '/api/student/check-in',
-      method: 'POST',
-      body: {
-        'sessionId': sessionId,
-        'sessionCodeRaw': sessionCodeRaw,
-        'studentId': '',
-        'listId': listId,
-        if (deviceId != null) 'deviceId': deviceId,
-        if (latitude != null) 'latitude': latitude,
-        if (longitude != null) 'longitude': longitude,
-      },
-    );
   }
 }

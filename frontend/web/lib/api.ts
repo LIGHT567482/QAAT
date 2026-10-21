@@ -67,15 +67,12 @@ export const api = {
       body: JSON.stringify({ login, password }),
     }),
   me: () => req<Me>("/api/auth/me"),
-  health: () => req<{ status: string; service: string }>("/health"),
 
-  // Dashboard summaries per role group.
-  studentDashboard: () => req<Record<string, unknown>>("/api/student/dashboard"),
+  // Dashboard summaries per role group. There is deliberately no student
+  // dashboard: the web surface is staff-only (students are blocked at login)
+  // and, per spec doc 07, students have no dashboard in the mobile app either.
   lecturerDashboard: () => req<Record<string, unknown>>("/api/lecturer/dashboard"),
   adminDashboard: () => req<Record<string, unknown>>("/api/admin/dashboard"),
-
-  // Attendance surface — 501 until the merge lands.
-  lists: (group: "student" | "lecturer") => req<unknown[]>(`/api/${group}/lists`),
 };
 
 // True when a caught error is the attendance merge-slot 501.

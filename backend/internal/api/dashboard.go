@@ -10,15 +10,9 @@ import (
 
 // Dashboards return role-scoped summaries. Attendance-derived numbers are
 // pending until the merge lands (they surface as null with a note).
-
-func (h *Handlers) studentDashboard(c *gin.Context) {
-	u, _ := auth.CurrentUser(c)
-	c.JSON(http.StatusOK, gin.H{
-		"user":      u.ID,
-		"role":      u.Role,
-		"attendance": gin.H{"status": "pending_merge", "roll": nil},
-	})
-}
+//
+// Students deliberately have none (spec doc 07 — their surface is Attendance ·
+// Notices · Profile), so there is no studentDashboard handler.
 
 func (h *Handlers) lecturerDashboard(c *gin.Context) {
 	u, _ := auth.CurrentUser(c)
